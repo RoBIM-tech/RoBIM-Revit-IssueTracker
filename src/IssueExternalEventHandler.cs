@@ -15,6 +15,7 @@ public enum IssueRevitAction
     PickElementsByRectangle,
     GetSelectedElements,
     HighlightElements,
+    SelectElementsOnly,
     SwitchToViewAndHighlight,
     CaptureView,
     GetCurrentViewInfo
@@ -64,7 +65,11 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
                     break;
 
                 case IssueRevitAction.HighlightElements:
-                    ExecuteHighlightElements(uidoc);
+                    ExecuteHighlightElements(uidoc, zoom: true);
+                    break;
+
+                case IssueRevitAction.SelectElementsOnly:
+                    ExecuteHighlightElements(uidoc, zoom: false);
                     break;
 
                 case IssueRevitAction.SwitchToViewAndHighlight:
@@ -163,7 +168,7 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         OnElementsPicked?.Invoke(elementIds, uniqueIds);
     }
 
-    private void ExecuteHighlightElements(UIDocument uidoc)
+    private void ExecuteHighlightElements(UIDocument uidoc, bool zoom = true)
     {
         var doc = uidoc.Document;
         var elementIds = new List<ElementId>();
@@ -180,7 +185,10 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         if (elementIds.Count > 0)
         {
             uidoc.Selection.SetElementIds(elementIds);
-            uidoc.ShowElements(elementIds);
+            if (zoom)
+            {
+                uidoc.ShowElements(elementIds);
+            }
         }
         else
         {

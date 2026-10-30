@@ -36,6 +36,7 @@ public sealed class IssueTrackerWindow : Window
     private List<ColumnPreferenceItem> columnPrefs;
     private readonly ObservableCollection<IssueItem> issues = [];
     private IssueItem? currentEditingIssue;
+    private IssueItem? originalSnapshot;
 
     // UI Controls - Header
     private readonly TextBlock folderPathText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 280 };
@@ -89,12 +90,15 @@ public sealed class IssueTrackerWindow : Window
     private readonly Button clearViewBtn = new() { Content = "해제", Margin = new Thickness(4, 0, 0, 0) };
 
     // Element Link Controls
-    private readonly TextBlock linkedElementsText = new() { Text = "(선택된 객체 없음)", VerticalAlignment = VerticalAlignment.Center };
-    private readonly Button pickRectElementsBtn = new() { Content = "영역 드래그(박스)", Margin = new Thickness(4, 0, 0, 0), ToolTip = "마우스로 드래그하여 영역 내 객체들을 한 번에 선택합니다." };
-    private readonly Button getSelectedElementsBtn = new() { Content = "현재 선택 객체", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Revit 화면에서 이미 선택되어 있는 객체들을 가져옵니다." };
-    private readonly Button pickElementsBtn = new() { Content = "다중 클릭 선택", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Ctrl 키를 누른 채 객체들을 하나씩 클릭하여 선택합니다." };
-    private readonly Button highlightElementsBtn = new() { Content = "객체로 이동/줌", Margin = new Thickness(4, 0, 0, 0), IsEnabled = false };
-    private readonly Button clearElementsBtn = new() { Content = "해제", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly TextBlock linkedElementsText = new() { Text = "(연결된 객체 없음)", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
+    private readonly Button getSelectedElementsBtn = new() { Content = "현재 Revit 선택 가져오기", Margin = new Thickness(0, 0, 6, 4), ToolTip = "Revit 화면에서 이미 선택되어 있는 객체들을 가져와 이슈에 연결합니다." };
+    private readonly Button pickRectElementsBtn = new() { Content = "영역 드래그(박스) 선택", Margin = new Thickness(0, 0, 6, 4), ToolTip = "마우스로 사각형을 드래그하여 영역 내 객체들을 한 번에 선택하여 연결합니다." };
+    private readonly Button pickElementsBtn = new() { Content = "다중 클릭 선택", Margin = new Thickness(0, 0, 6, 4), ToolTip = "Ctrl 키를 누른 채 객체들을 하나씩 클릭하여 연결합니다." };
+    private readonly Button clearElementsBtn = new() { Content = "연결 해제", Margin = new Thickness(0, 0, 6, 4), ToolTip = "이 이슈에 연결된 객체 목록을 모두 비웁니다." };
+
+    private readonly Button selectOnlyElementsBtn = new() { Content = "전체 선택 (선택만)", Margin = new Thickness(8, 0, 4, 0), IsEnabled = false, ToolTip = "연결된 모든 객체를 Revit에서 선택 상태로 만듭니다. (카메라 이동 없음)" };
+    private readonly Button zoomElementsBtn = new() { Content = "전체 선택 및 줌 이동", Margin = new Thickness(4, 0, 0, 0), IsEnabled = false, ToolTip = "연결된 모든 객체를 선택하고 화면 중앙으로 줌 이동합니다." };
+    private readonly WrapPanel linkedElementsChipsPanel = new();
 
     // Snapshot Multi Gallery Controls
     private readonly WrapPanel snapshotGalleryPanel = new();
@@ -487,6 +491,7 @@ public sealed class IssueTrackerWindow : Window
         UpdateUsersCombos();
         AddGridRow(g, 3, "담당자:", assignedToCombo, 1, 1);
         AddGridRow(g, 3, "작성자:", createdByCombo, 3, 1);
+        createdByCombo.SelectionChanged += (s, e) => UpdateCommentsUI();
 
         // Row 4: Type & DueDate
         typeCombo.ItemsSource = config.TypeList;
@@ -534,14 +539,32 @@ public sealed class IssueTrackerWindow : Window
         form.Children.Add(viewGroup);
 
         // Linked Elements Section
-        var elemGroup = new GroupBox { Header = "연계 객체 (ElementId) - 단일/다중/영역 드래그 선택", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
-        var elemStack = new StackPanel();
-        var elemBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        var elemGroup = new GroupBox { Header = "연계 객체 (ElementId)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
+        var elemMainStack = new StackPanel();
 
-        pickRectElementsBtn.Click += PickRectElementsFromRevit;
+        // 1. 등록 / 연결 영역
+        var registerCard = new Border
+        {
+            Background = new SolidColorBrush(MediaColor.FromRgb(248, 249, 250)),
+            BorderBrush = Brushes.LightGray,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        var registerStack = new StackPanel();
+        var regHeader = new TextBlock
+        {
+            Text = "📥 1. 객체 연결 (이슈에 객체 등록 / 수정)",
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.DarkSlateGray,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        registerStack.Children.Add(regHeader);
+
         getSelectedElementsBtn.Click += GetSelectedFromRevit;
+        pickRectElementsBtn.Click += PickRectElementsFromRevit;
         pickElementsBtn.Click += PickElementsFromRevit;
-        highlightElementsBtn.Click += HighlightElementsInRevit;
         clearElementsBtn.Click += (s, e) =>
         {
             if (currentEditingIssue != null)
@@ -549,17 +572,70 @@ public sealed class IssueTrackerWindow : Window
                 currentEditingIssue.ElementIds.Clear();
                 currentEditingIssue.UniqueIds.Clear();
                 UpdateLinkedElementsUI();
+                SetStatus("연계 객체가 모두 해제되었습니다.");
             }
         };
 
-        elemBar.Children.Add(pickRectElementsBtn);
-        elemBar.Children.Add(getSelectedElementsBtn);
-        elemBar.Children.Add(pickElementsBtn);
-        elemBar.Children.Add(highlightElementsBtn);
-        elemBar.Children.Add(clearElementsBtn);
-        elemStack.Children.Add(elemBar);
-        elemStack.Children.Add(linkedElementsText);
-        elemGroup.Content = elemStack;
+        var regButtonsBar = new WrapPanel();
+        regButtonsBar.Children.Add(getSelectedElementsBtn);
+        regButtonsBar.Children.Add(pickRectElementsBtn);
+        regButtonsBar.Children.Add(pickElementsBtn);
+        regButtonsBar.Children.Add(clearElementsBtn);
+        registerStack.Children.Add(regButtonsBar);
+        registerCard.Child = registerStack;
+        elemMainStack.Children.Add(registerCard);
+
+        // 2. 확인 / 검토 영역
+        var inspectCard = new Border
+        {
+            Background = new SolidColorBrush(MediaColor.FromRgb(255, 255, 255)),
+            BorderBrush = Brushes.LightSteelBlue,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8)
+        };
+        var inspectStack = new StackPanel();
+        var insHeader = new TextBlock
+        {
+            Text = "🔍 2. 연결된 객체 확인 (Revit 뷰 연동)",
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.DarkSlateBlue,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        inspectStack.Children.Add(insHeader);
+
+        selectOnlyElementsBtn.Click += (s, e) => SelectAllElements(zoom: false);
+        zoomElementsBtn.Click += (s, e) => SelectAllElements(zoom: true);
+
+        var inspectActionBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        inspectActionBar.Children.Add(linkedElementsText);
+        inspectActionBar.Children.Add(selectOnlyElementsBtn);
+        inspectActionBar.Children.Add(zoomElementsBtn);
+        inspectStack.Children.Add(inspectActionBar);
+
+        var chipsContainer = new ScrollViewer
+        {
+            MaxHeight = 110,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        chipsContainer.Content = linkedElementsChipsPanel;
+        inspectStack.Children.Add(chipsContainer);
+
+        var hintText = new TextBlock
+        {
+            Text = "※ 각 ID 버튼을 클릭하면 해당 객체만 Revit에서 선택되며, 더블클릭하면 줌 이동합니다.",
+            FontSize = 11,
+            Foreground = Brushes.Gray,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        inspectStack.Children.Add(hintText);
+
+        inspectCard.Child = inspectStack;
+        elemMainStack.Children.Add(inspectCard);
+
+        elemGroup.Content = elemMainStack;
         form.Children.Add(elemGroup);
 
         // Snapshot Section (Multi-Image Gallery)
@@ -783,6 +859,7 @@ public sealed class IssueTrackerWindow : Window
 
     private void PrepareNewIssue()
     {
+        originalSnapshot = null;
         string currentAuthor = ResolveCurrentAuthor();
 
         currentEditingIssue = new IssueItem
@@ -824,6 +901,29 @@ public sealed class IssueTrackerWindow : Window
     private void EditIssue(IssueItem item)
     {
         currentEditingIssue = item;
+        originalSnapshot = new IssueItem
+        {
+            Id = item.Id,
+            Number = item.Number,
+            Title = item.Title,
+            Status = item.Status,
+            Priority = item.Priority,
+            Discipline1 = item.Discipline1,
+            Discipline2 = item.Discipline2,
+            Type = item.Type,
+            AssignedTo = item.AssignedTo,
+            CreatedBy = item.CreatedBy,
+            DueDate = item.DueDate,
+            Location = item.Location,
+            RootCause = item.RootCause,
+            Description = item.Description,
+            LinkedViewId = item.LinkedViewId,
+            LinkedViewName = item.LinkedViewName,
+            ElementIds = new List<long>(item.ElementIds),
+            SnapshotFileNames = new List<string>(item.SnapshotFileNames),
+            CustomFields = new Dictionary<string, string>(item.CustomFields)
+        };
+
         formHeaderTitle.Text = $"이슈 {item.DisplayNumber} · {item.Title}";
         string displayAuthor = NormalizeAuthor(item.CreatedBy);
         string srcModel = item.SourceModelDisplay;
@@ -995,20 +1095,55 @@ public sealed class IssueTrackerWindow : Window
 
             var authorText = new TextBlock
             {
-                Text = c.IsSystem ? $"[시스템 알림] {c.Author}" : c.Author,
+                Text = c.IsSystem ? $"[활동 내역] {c.Author}" : c.Author,
                 FontWeight = FontWeights.Bold,
                 Foreground = c.IsSystem ? Brushes.SteelBlue : Brushes.DarkSlateBlue
             };
+
+            var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            DockPanel.SetDock(rightPanel, Dock.Right);
+
             var timeText = new TextBlock
             {
                 Text = c.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
                 Foreground = Brushes.Gray,
                 FontSize = 11,
-                HorizontalAlignment = HorizontalAlignment.Right
+                VerticalAlignment = VerticalAlignment.Center
             };
+            rightPanel.Children.Add(timeText);
 
-            DockPanel.SetDock(timeText, Dock.Right);
-            metaBar.Children.Add(timeText);
+            if (IsCurrentUserAdmin())
+            {
+                var delCommentBtn = new Button
+                {
+                    Content = "삭제",
+                    FontSize = 10,
+                    Padding = new Thickness(4, 1, 4, 1),
+                    Margin = new Thickness(6, 0, 0, 0),
+                    Background = Brushes.Transparent,
+                    Foreground = Brushes.Crimson,
+                    BorderBrush = Brushes.Crimson,
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    ToolTip = "관리자 권한: 이 댓글/활동 내역을 삭제합니다."
+                };
+
+                delCommentBtn.Click += (s, e) =>
+                {
+                    e.Handled = true;
+                    var confirm = MessageBox.Show(this, "이 댓글/활동 내역을 영구히 삭제하시겠습니까?", "댓글 삭제 확인", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (confirm == MessageBoxResult.Yes)
+                    {
+                        currentEditingIssue.Comments.Remove(c);
+                        storage.SaveIssue(currentEditingIssue, config);
+                        UpdateCommentsUI();
+                        SetStatus("댓글/활동 내역이 삭제되었습니다.");
+                    }
+                };
+
+                rightPanel.Children.Add(delCommentBtn);
+            }
+
+            metaBar.Children.Add(rightPanel);
             metaBar.Children.Add(authorText);
             stack.Children.Add(metaBar);
 
@@ -1065,15 +1200,38 @@ public sealed class IssueTrackerWindow : Window
 
     private void UpdateLinkedElementsUI()
     {
+        linkedElementsChipsPanel.Children.Clear();
+
         if (currentEditingIssue == null || currentEditingIssue.ElementIds.Count == 0)
         {
-            linkedElementsText.Text = "(선택된 객체 없음)";
-            highlightElementsBtn.IsEnabled = false;
+            linkedElementsText.Text = "(연결된 객체 없음)";
+            selectOnlyElementsBtn.IsEnabled = false;
+            zoomElementsBtn.IsEnabled = false;
+            return;
         }
-        else
+
+        linkedElementsText.Text = $"연결된 객체: 총 {currentEditingIssue.ElementIds.Count}개  ";
+        selectOnlyElementsBtn.IsEnabled = true;
+        zoomElementsBtn.IsEnabled = true;
+
+        foreach (var idVal in currentEditingIssue.ElementIds)
         {
-            linkedElementsText.Text = $"{currentEditingIssue.ElementIds.Count}개 객체 선택됨 (ID: {string.Join(", ", currentEditingIssue.ElementIds)})";
-            highlightElementsBtn.IsEnabled = true;
+            var chip = new Button
+            {
+                Content = $"🆔 {idVal}",
+                Margin = new Thickness(0, 0, 5, 5),
+                Padding = new Thickness(7, 2, 7, 2),
+                FontSize = 11,
+                Background = new SolidColorBrush(MediaColor.FromRgb(240, 244, 250)),
+                BorderBrush = Brushes.SteelBlue,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = $"클릭: Revit에서 이 객체만 선택 (줌 없음)\n더블클릭: 이 객체로 줌 이동"
+            };
+
+            chip.Click += (s, e) => SelectSingleElement(idVal, zoom: false);
+            chip.MouseDoubleClick += (s, e) => { e.Handled = true; SelectSingleElement(idVal, zoom: true); };
+
+            linkedElementsChipsPanel.Children.Add(chip);
         }
     }
 
@@ -1241,20 +1399,52 @@ public sealed class IssueTrackerWindow : Window
         SetStatus("Ctrl 키를 누르고 객체들을 선택하세요 (완료 시 Finish 클릭)...");
     }
 
-    private void HighlightElementsInRevit(object sender, RoutedEventArgs e)
+    private void SelectSingleElement(long idVal, bool zoom)
+    {
+        if (currentEditingIssue != null && !string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel) &&
+            !currentEditingIssue.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"참고: 해당 객체(ID: {idVal})는 '{currentEditingIssue.SourceModel}' 모델의 객체입니다.");
+        }
+
+        eventHandler.CurrentAction = zoom ? IssueRevitAction.HighlightElements : IssueRevitAction.SelectElementsOnly;
+        eventHandler.TargetElementIds = [idVal];
+        revitEvent.Raise();
+        SetStatus(zoom ? $"객체 ID: {idVal}로 줌 이동합니다." : $"객체 ID: {idVal}를 Revit에서 선택했습니다. (줌 없음)");
+    }
+
+    private void SelectAllElements(bool zoom)
     {
         if (currentEditingIssue == null || currentEditingIssue.ElementIds.Count == 0) return;
 
         if (!string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel) &&
             !currentEditingIssue.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase))
         {
-            SetStatus($"참고: 해당 객체는 '{currentEditingIssue.SourceModel}' 모델의 객체입니다. (현재 모델: {currentModelName})");
+            SetStatus($"참고: 해당 객체들은 '{currentEditingIssue.SourceModel}' 모델의 객체입니다.");
         }
 
-        eventHandler.CurrentAction = IssueRevitAction.HighlightElements;
+        eventHandler.CurrentAction = zoom ? IssueRevitAction.HighlightElements : IssueRevitAction.SelectElementsOnly;
         eventHandler.TargetElementIds = currentEditingIssue.ElementIds;
         revitEvent.Raise();
-        SetStatus($"객체 {currentEditingIssue.ElementIds.Count}개를 Revit 뷰에서 하이라이트합니다.");
+        SetStatus(zoom ? $"연계 객체 {currentEditingIssue.ElementIds.Count}개를 선택하고 줌 이동합니다." : $"연계 객체 {currentEditingIssue.ElementIds.Count}개를 Revit에서 선택했습니다. (줌 없음)");
+    }
+
+    private bool IsCurrentUserAdmin()
+    {
+        if (config.Users.Count == 0 || !config.Users.Any(u => u.IsAdmin))
+        {
+            return true; // 관리자가 한 명도 지정되지 않은 초기 상태는 모든 사용자에게 삭제 권한 허용
+        }
+
+        string currentAuthor = createdByCombo.Text.Trim();
+        string revitUser = (doc.Application.Username ?? "").Trim();
+
+        var matched = config.Users.FirstOrDefault(u =>
+            u.DisplayText.Equals(currentAuthor, StringComparison.OrdinalIgnoreCase) ||
+            u.DisplayName.Equals(currentAuthor, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase)));
+
+        return matched?.IsAdmin == true;
     }
 
     private void CaptureActiveViewFromRevit(object sender, RoutedEventArgs e)
@@ -1337,69 +1527,149 @@ public sealed class IssueTrackerWindow : Window
         bool isNew = currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id);
         if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
 
-        // Automatic System Comments on Modification
-        if (!isNew)
+        string newStatus = statusCombo.SelectedItem?.ToString() ?? "Open";
+        string newPriority = priorityCombo.Text.Trim();
+        string newD1 = discipline1Combo.Text.Trim();
+        string newD2 = discipline2Combo.Text.Trim();
+        string newType = typeCombo.Text.Trim();
+        string newDue = dueDatePicker.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
+        string newLoc = locationBox.Text.Trim();
+        string newRoot = rootCauseCombo.Text.Trim();
+        string newDesc = descBox.Text;
+        var newCustomFields = CollectCustomFieldValues();
+
+        // Automatic Activity History Comments on Modification
+        if (!isNew && originalSnapshot != null)
         {
             var changes = new List<string>();
-            string newStatus = statusCombo.SelectedItem?.ToString() ?? "Open";
-            if (!currentEditingIssue.Status.Equals(newStatus, StringComparison.OrdinalIgnoreCase))
-                changes.Add($"상태: '{currentEditingIssue.Status}' → '{newStatus}'");
 
-            string newPriority = priorityCombo.Text.Trim();
-            if (!currentEditingIssue.Priority.Equals(newPriority, StringComparison.OrdinalIgnoreCase))
-                changes.Add($"우선순위: '{currentEditingIssue.Priority}' → '{newPriority}'");
+            // 1. 상태
+            if (!originalSnapshot.Status.Equals(newStatus, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"상태: '{originalSnapshot.Status}' → '{newStatus}'");
 
-            if (!currentEditingIssue.AssignedTo.Equals(assignedText, StringComparison.OrdinalIgnoreCase))
-                changes.Add($"담당자: '{currentEditingIssue.AssignedTo}' → '{assignedText}'");
+            // 2. 우선순위
+            if (!originalSnapshot.Priority.Equals(newPriority, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"우선순위: '{originalSnapshot.Priority}' → '{newPriority}'");
 
-            if (!currentEditingIssue.Title.Equals(title, StringComparison.OrdinalIgnoreCase))
-                changes.Add($"제목 수정");
+            // 3. 담당자
+            if (!originalSnapshot.AssignedTo.Equals(assignedText, StringComparison.OrdinalIgnoreCase))
+            {
+                string oldAssigned = string.IsNullOrWhiteSpace(originalSnapshot.AssignedTo) ? "미지정" : originalSnapshot.AssignedTo;
+                string newAssigned = string.IsNullOrWhiteSpace(assignedText) ? "미지정" : assignedText;
+                changes.Add($"담당자: '{oldAssigned}' → '{newAssigned}'");
+            }
+
+            // 4. 공종 1 & 공종 2(간섭)
+            if (!originalSnapshot.Discipline1.Equals(newD1, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"공종 1: '{originalSnapshot.Discipline1}' → '{newD1}'");
+
+            if (!originalSnapshot.Discipline2.Equals(newD2, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"공종 2(간섭): '{originalSnapshot.Discipline2}' → '{newD2}'");
+
+            // 5. 제목
+            if (!originalSnapshot.Title.Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                string Trunc(string s) => s.Length <= 20 ? s : s[..17] + "...";
+                changes.Add($"제목: '{Trunc(originalSnapshot.Title)}' → '{Trunc(title)}'");
+            }
+
+            // 6. 유형
+            if (!originalSnapshot.Type.Equals(newType, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"유형: '{originalSnapshot.Type}' → '{newType}'");
+
+            // 7. 마감일
+            if (!originalSnapshot.DueDate.Equals(newDue, StringComparison.OrdinalIgnoreCase))
+            {
+                string oldDue = string.IsNullOrWhiteSpace(originalSnapshot.DueDate) ? "미지정" : originalSnapshot.DueDate;
+                string dueDisplay = string.IsNullOrWhiteSpace(newDue) ? "미지정" : newDue;
+                changes.Add($"마감일: '{oldDue}' → '{dueDisplay}'");
+            }
+
+            // 8. 위치/층
+            if (!originalSnapshot.Location.Equals(newLoc, StringComparison.OrdinalIgnoreCase))
+            {
+                string oldLoc = string.IsNullOrWhiteSpace(originalSnapshot.Location) ? "미지정" : originalSnapshot.Location;
+                string locDisplay = string.IsNullOrWhiteSpace(newLoc) ? "미지정" : newLoc;
+                changes.Add($"위치: '{oldLoc}' → '{locDisplay}'");
+            }
+
+            // 9. 근본 원인
+            if (!originalSnapshot.RootCause.Equals(newRoot, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"근본원인: '{originalSnapshot.RootCause}' → '{newRoot}'");
+
+            // 10. 상세 설명
+            if (!originalSnapshot.Description.Equals(newDesc, StringComparison.Ordinal))
+                changes.Add("상세 설명 내용 수정");
+
+            // 11. 연계 뷰
+            if (originalSnapshot.LinkedViewId != currentEditingIssue.LinkedViewId)
+            {
+                if (currentEditingIssue.LinkedViewId <= 0)
+                    changes.Add("연계 뷰 해제");
+                else
+                    changes.Add($"연계 뷰: '{currentEditingIssue.LinkedViewName}'");
+            }
+
+            // 12. 연계 객체
+            if (!originalSnapshot.ElementIds.SequenceEqual(currentEditingIssue.ElementIds))
+            {
+                changes.Add($"연계 객체 변경 ({originalSnapshot.ElementIds.Count}개 → {currentEditingIssue.ElementIds.Count}개)");
+            }
+
+            // 13. 스냅샷 이미지
+            if (!originalSnapshot.SnapshotFileNames.SequenceEqual(currentEditingIssue.SnapshotFileNames))
+            {
+                changes.Add($"스냅샷 이미지 변경 ({originalSnapshot.SnapshotFileNames.Count}장 → {currentEditingIssue.SnapshotFileNames.Count}장)");
+            }
+
+            // 14. 커스텀 필드
+            foreach (var cf in config.CustomFields)
+            {
+                originalSnapshot.CustomFields.TryGetValue(cf.Id, out var oldV);
+                newCustomFields.TryGetValue(cf.Id, out var newV);
+                oldV ??= "";
+                newV ??= "";
+                if (!oldV.Equals(newV, StringComparison.OrdinalIgnoreCase))
+                {
+                    changes.Add($"{cf.Name}: '{(string.IsNullOrWhiteSpace(oldV) ? "미지정" : oldV)}' → '{(string.IsNullOrWhiteSpace(newV) ? "미지정" : newV)}'");
+                }
+            }
 
             if (changes.Count > 0)
             {
                 currentEditingIssue.Comments.Add(new IssueComment
                 {
                     Author = currentAuthor,
-                    Content = $"[수정 내역] {string.Join(", ", changes)}",
-                    CreatedAt = DateTime.Now,
-                    IsSystem = true
-                });
-            }
-            else
-            {
-                currentEditingIssue.Comments.Add(new IssueComment
-                {
-                    Author = currentAuthor,
-                    Content = "이슈 상세 내용이 수정되었습니다.",
+                    Content = $"[수정 내역]\n• {string.Join("\n• ", changes)}",
                     CreatedAt = DateTime.Now,
                     IsSystem = true
                 });
             }
         }
-        else
+        else if (isNew)
         {
             currentEditingIssue.Comments.Add(new IssueComment
             {
                 Author = currentAuthor,
-                Content = "이슈가 신규 등록되었습니다.",
+                Content = $"이슈 신규 등록 (상태: {newStatus}, 우선순위: {newPriority}, 담당자: {(string.IsNullOrWhiteSpace(assignedText) ? "미지정" : assignedText)})",
                 CreatedAt = DateTime.Now,
                 IsSystem = true
             });
         }
 
         currentEditingIssue.Title = title;
-        currentEditingIssue.Status = statusCombo.SelectedItem?.ToString() ?? "Open";
-        currentEditingIssue.Priority = priorityCombo.Text.Trim();
-        currentEditingIssue.Discipline1 = discipline1Combo.Text.Trim();
-        currentEditingIssue.Discipline2 = discipline2Combo.Text.Trim();
-        currentEditingIssue.Type = typeCombo.Text.Trim();
+        currentEditingIssue.Status = newStatus;
+        currentEditingIssue.Priority = newPriority;
+        currentEditingIssue.Discipline1 = newD1;
+        currentEditingIssue.Discipline2 = newD2;
+        currentEditingIssue.Type = newType;
         currentEditingIssue.AssignedTo = assignedText;
         currentEditingIssue.CreatedBy = currentAuthor;
-        currentEditingIssue.DueDate = dueDatePicker.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
-        currentEditingIssue.Location = locationBox.Text.Trim();
-        currentEditingIssue.RootCause = rootCauseCombo.Text.Trim();
-        currentEditingIssue.Description = descBox.Text;
-        currentEditingIssue.CustomFields = CollectCustomFieldValues();
+        currentEditingIssue.DueDate = newDue;
+        currentEditingIssue.Location = newLoc;
+        currentEditingIssue.RootCause = newRoot;
+        currentEditingIssue.Description = newDesc;
+        currentEditingIssue.CustomFields = newCustomFields;
 
         if (isNew || string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel))
         {

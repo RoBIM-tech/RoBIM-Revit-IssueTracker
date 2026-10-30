@@ -8,6 +8,9 @@ public sealed class ProjectUser
     public string DisplayName { get; set; } = string.Empty;
     public string RevitUsername { get; set; } = string.Empty;
     public string Company { get; set; } = string.Empty;
+    public bool IsAdmin { get; set; } // 관리자 권한 (댓글/활동내역 삭제 권한 등)
+
+    public string AdminDisplay => IsAdmin ? "관리자" : "일반";
 
     // 이름 (회사) 형식
     public string DisplayText =>
