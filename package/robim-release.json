@@ -3,7 +3,7 @@
   "modules": [
     {
       "id": "issue-tracker",
-      "version": "0.1.0-test.5",
+      "version": "0.1.0-test.6",
       "channel": "test",
       "libraries": [
         {

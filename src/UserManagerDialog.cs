@@ -53,7 +53,31 @@ public sealed class UserManagerDialog : Window
         var saveBtn = new Button { Content = "저장 및 닫기", MinWidth = 90, Margin = new Thickness(0, 0, 6, 0) };
         var cancelBtn = new Button { Content = "취소", MinWidth = 70 };
 
-        saveBtn.Click += (s, e) => { IsSaved = true; DialogResult = true; Close(); };
+        saveBtn.Click += (s, e) =>
+        {
+            // 사용자가 [사용자 추가] 버튼을 누르지 않고 바로 저장하더라도 입력된 내용 자동 반영
+            string pendingName = nameBox.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(pendingName))
+            {
+                users.Add(new ProjectUser
+                {
+                    DisplayName = pendingName,
+                    Company = companyBox.Text.Trim(),
+                    RevitUsername = revitUserBox.Text.Trim()
+                });
+            }
+
+            if (users.Count == 0)
+            {
+                MessageBox.Show(this, "등록할 참여자(이름, 회사)를 입력해 주세요.", "안내", MessageBoxButton.OK, MessageBoxImage.Warning);
+                nameBox.Focus();
+                return;
+            }
+
+            IsSaved = true;
+            DialogResult = true;
+            Close();
+        };
         cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
 
         bottomPanel.Children.Add(saveBtn);

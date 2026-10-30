@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -74,7 +73,7 @@ public sealed class IssueTrackerWindow : Window
     private readonly WpfComboBox discipline2Combo = new() { IsEditable = true };
     private readonly WpfComboBox typeCombo = new() { IsEditable = true };
     private readonly WpfComboBox assignedToCombo = new() { IsEditable = true };
-    private readonly WpfTextBox createdByBox = new() { IsReadOnly = true, Background = Brushes.WhiteSmoke };
+    private readonly WpfComboBox createdByCombo = new() { IsEditable = true }; // 작성자 이름 (회사) 드롭다운 및 직접 수정 지원
     private readonly DatePicker dueDatePicker = new();
     private readonly WpfTextBox locationBox = new();
     private readonly WpfComboBox rootCauseCombo = new() { IsEditable = true };
@@ -157,32 +156,43 @@ public sealed class IssueTrackerWindow : Window
         InitializeUI();
         BuildGridColumns();
         CheckAndPromptInitialUser();
+        UpdateUsersCombos();
         LoadIssues();
         PrepareNewIssue();
     }
 
     private void CheckAndPromptInitialUser()
     {
-        string revitUser = doc.Application.Username;
-        if (!string.IsNullOrWhiteSpace(revitUser))
-        {
-            var matched = config.Users.FirstOrDefault(u => u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
-            if (matched == null)
-            {
-                var dlg = new UserManagerDialog(
-                    config.Users,
-                    revitUser,
-                    $"현재 Revit 로그인 사용자 [{revitUser}]가 참여자로 등록되지 않았습니다.\n원활한 이슈 작성자 연계를 위해 실명과 소속 회사를 등록해 주세요.")
-                {
-                    Owner = this
-                };
+        string revitUser = (doc.Application.Username ?? "").Trim();
+        bool needPrompt = false;
 
-                if (dlg.ShowDialog() == true && dlg.IsSaved)
-                {
-                    config.Users = dlg.GetResultUsers();
-                    storage.SaveConfig(config);
-                    UpdateAssignedToUsersList();
-                }
+        if (config.Users.Count == 0)
+        {
+            needPrompt = true;
+        }
+        else
+        {
+            var matched = config.Users.FirstOrDefault(u =>
+                (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase)) ||
+                u.DisplayName.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
+            if (matched == null) needPrompt = true;
+        }
+
+        if (needPrompt)
+        {
+            var dlg = new UserManagerDialog(
+                config.Users,
+                revitUser,
+                $"현재 Revit 사용자 [{revitUser}]가 참여자로 등록되지 않았습니다.\n이슈 작성자 및 담당자에 '이름 (회사)' 형태로 표시되도록 실명과 회사를 등록해 주세요.")
+            {
+                Owner = this
+            };
+
+            if (dlg.ShowDialog() == true && dlg.IsSaved)
+            {
+                config.Users = dlg.GetResultUsers();
+                storage.SaveConfig(config);
+                UpdateUsersCombos();
             }
         }
     }
@@ -460,9 +470,9 @@ public sealed class IssueTrackerWindow : Window
         AddGridRow(g, 2, "공종 2(간섭):", discipline2Combo, 3, 1);
 
         // Row 3: AssignedTo & CreatedBy (이름 (회사) 포맷)
-        UpdateAssignedToUsersList();
+        UpdateUsersCombos();
         AddGridRow(g, 3, "담당자:", assignedToCombo, 1, 1);
-        AddGridRow(g, 3, "작성자:", createdByBox, 3, 1);
+        AddGridRow(g, 3, "작성자:", createdByCombo, 3, 1);
 
         // Row 4: Type & DueDate
         typeCombo.ItemsSource = config.TypeList;
@@ -600,7 +610,7 @@ public sealed class IssueTrackerWindow : Window
         grid.Children.Add(element);
     }
 
-    private void UpdateAssignedToUsersList()
+    private void UpdateUsersCombos()
     {
         var options = new List<string>();
         foreach (var u in config.Users)
@@ -608,18 +618,57 @@ public sealed class IssueTrackerWindow : Window
             options.Add(u.DisplayText); // 이름 (회사)
         }
         assignedToCombo.ItemsSource = options;
+        createdByCombo.ItemsSource = options;
     }
 
     private string ResolveCurrentAuthor()
     {
-        string revitUser = doc.Application.Username;
-        var matched = config.Users.FirstOrDefault(u => u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
-        if (matched != null)
+        string revitUser = (doc.Application.Username ?? "").Trim();
+        string winUser = Environment.UserName;
+
+        // 1. RevitUsername 일치 확인
+        var matched = config.Users.FirstOrDefault(u =>
+            !string.IsNullOrWhiteSpace(u.RevitUsername) &&
+            (u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase) ||
+             u.RevitUsername.Equals(winUser, StringComparison.OrdinalIgnoreCase)));
+
+        if (matched != null) return matched.DisplayText;
+
+        // 2. DisplayName 일치 확인
+        matched = config.Users.FirstOrDefault(u =>
+            u.DisplayName.Equals(revitUser, StringComparison.OrdinalIgnoreCase) ||
+            u.DisplayName.Equals(winUser, StringComparison.OrdinalIgnoreCase));
+
+        if (matched != null) return matched.DisplayText;
+
+        // 3. 등록된 참여자가 있다면 첫 번째 참여자 반환
+        if (config.Users.Count > 0)
         {
-            return matched.DisplayText; // 이름 (회사)
+            return config.Users[0].DisplayText;
         }
 
-        return !string.IsNullOrWhiteSpace(revitUser) ? revitUser : Environment.UserName;
+        // 4. 등록된 참여자가 전혀 없을 때
+        return !string.IsNullOrWhiteSpace(revitUser) ? $"{revitUser} (회사미지정)" : $"{winUser} (회사미지정)";
+    }
+
+    private string NormalizeAuthor(string? rawAuthor)
+    {
+        if (string.IsNullOrWhiteSpace(rawAuthor)) return ResolveCurrentAuthor();
+
+        // 이미 '이름 (회사)' 형식이면 그대로 반환
+        if (rawAuthor.Contains("(") && rawAuthor.Contains(")"))
+        {
+            return rawAuthor;
+        }
+
+        // 등록된 사용자 목록에서 찾기
+        var matched = config.Users.FirstOrDefault(u =>
+            u.DisplayName.Equals(rawAuthor, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(rawAuthor, StringComparison.OrdinalIgnoreCase)));
+
+        if (matched != null) return matched.DisplayText;
+
+        return rawAuthor;
     }
 
     private void LoadIssues()
@@ -631,6 +680,9 @@ public sealed class IssueTrackerWindow : Window
         var targetList = showArchived ? list.Where(x => x.IsArchived) : list.Where(x => !x.IsArchived);
         foreach (var item in targetList)
         {
+            // 작성자/담당자 문자열을 이름(회사) 포맷으로 정규화
+            item.CreatedBy = NormalizeAuthor(item.CreatedBy);
+            item.AssignedTo = NormalizeAuthor(item.AssignedTo);
             issues.Add(item);
         }
         ApplyFilter();
@@ -663,6 +715,8 @@ public sealed class IssueTrackerWindow : Window
 
     private void PrepareNewIssue()
     {
+        string currentAuthor = ResolveCurrentAuthor();
+
         currentEditingIssue = new IssueItem
         {
             Status = "Open",
@@ -671,7 +725,7 @@ public sealed class IssueTrackerWindow : Window
             Discipline2 = "(해당 없음)",
             Type = "설계검토",
             RootCause = "미지정",
-            CreatedBy = ResolveCurrentAuthor()
+            CreatedBy = currentAuthor
         };
 
         try
@@ -690,7 +744,7 @@ public sealed class IssueTrackerWindow : Window
         }
 
         formHeaderTitle.Text = "새 이슈 등록";
-        formHeaderSubtitle.Text = "작성자: " + currentEditingIssue.CreatedBy;
+        formHeaderSubtitle.Text = "작성자: " + currentAuthor;
         archiveIssueBtn.Visibility = WpfVisibility.Collapsed;
         restoreIssueBtn.Visibility = WpfVisibility.Collapsed;
         saveIssueBtn.IsEnabled = true;
@@ -702,7 +756,8 @@ public sealed class IssueTrackerWindow : Window
     {
         currentEditingIssue = item;
         formHeaderTitle.Text = $"이슈 {item.DisplayNumber} · {item.Title}";
-        formHeaderSubtitle.Text = $"[{item.Status}] · [{item.Priority}] · [{item.DisciplinesDisplay}] | 작성자: {item.CreatedBy} ({item.CreatedAt:yyyy-MM-dd HH:mm})";
+        string displayAuthor = NormalizeAuthor(item.CreatedBy);
+        formHeaderSubtitle.Text = $"[{item.Status}] · [{item.Priority}] · [{item.DisciplinesDisplay}] | 작성자: {displayAuthor} ({item.CreatedAt:yyyy-MM-dd HH:mm})";
 
         if (item.IsArchived)
         {
@@ -728,8 +783,8 @@ public sealed class IssueTrackerWindow : Window
         discipline1Combo.Text = item.Discipline1;
         discipline2Combo.Text = item.Discipline2;
         typeCombo.Text = item.Type;
-        assignedToCombo.Text = item.AssignedTo;
-        createdByBox.Text = string.IsNullOrWhiteSpace(item.CreatedBy) ? ResolveCurrentAuthor() : item.CreatedBy;
+        assignedToCombo.Text = NormalizeAuthor(item.AssignedTo);
+        createdByCombo.Text = NormalizeAuthor(item.CreatedBy);
 
         if (DateTime.TryParse(item.DueDate, out var dt))
             dueDatePicker.SelectedDate = dt;
@@ -906,7 +961,9 @@ public sealed class IssueTrackerWindow : Window
         if (string.IsNullOrWhiteSpace(text)) return;
         if (currentEditingIssue == null) return;
 
-        string author = ResolveCurrentAuthor();
+        string author = createdByCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(author)) author = ResolveCurrentAuthor();
+
         currentEditingIssue.Comments.Add(new IssueComment
         {
             Author = author,
@@ -1170,11 +1227,10 @@ public sealed class IssueTrackerWindow : Window
             return;
         }
 
-        string currentAuthor = ResolveCurrentAuthor();
-        bool isNew = currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id);
-        if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
+        string currentAuthor = createdByCombo.Text.Trim();
+        if (string.IsNullOrWhiteSpace(currentAuthor)) currentAuthor = ResolveCurrentAuthor();
 
-        // Check if assigned user exists in config, prompt if new
+        // Check if author or assigned user exists in config, prompt/register if new
         string assignedText = assignedToCombo.Text.Trim();
         if (!string.IsNullOrWhiteSpace(assignedText))
         {
@@ -1186,7 +1242,7 @@ public sealed class IssueTrackerWindow : Window
                 {
                     config.Users.Add(new ProjectUser { DisplayName = assignedText });
                     storage.SaveConfig(config);
-                    UpdateAssignedToUsersList();
+                    UpdateUsersCombos();
                 }
             }
             else
@@ -1194,6 +1250,9 @@ public sealed class IssueTrackerWindow : Window
                 assignedText = matchedUser.DisplayText; // 정규화된 이름 (회사)
             }
         }
+
+        bool isNew = currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id);
+        if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
 
         // Automatic System Comments on Modification
         if (!isNew)
@@ -1252,7 +1311,7 @@ public sealed class IssueTrackerWindow : Window
         currentEditingIssue.Discipline2 = discipline2Combo.Text.Trim();
         currentEditingIssue.Type = typeCombo.Text.Trim();
         currentEditingIssue.AssignedTo = assignedText;
-        currentEditingIssue.CreatedBy = createdByBox.Text.Trim();
+        currentEditingIssue.CreatedBy = currentAuthor;
         currentEditingIssue.DueDate = dueDatePicker.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
         currentEditingIssue.Location = locationBox.Text.Trim();
         currentEditingIssue.RootCause = rootCauseCombo.Text.Trim();
@@ -1297,7 +1356,7 @@ public sealed class IssueTrackerWindow : Window
         {
             config.Users = dlg.GetResultUsers();
             storage.SaveConfig(config);
-            UpdateAssignedToUsersList();
+            UpdateUsersCombos();
             SetStatus("프로젝트 참여자 목록이 저장되었습니다.");
         }
     }
