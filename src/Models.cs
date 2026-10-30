@@ -108,4 +108,34 @@ public sealed class IssueProjectConfig
     public List<string> RootCauseList { get; set; } = ["미지정", "설계 누락", "모델링 오류", "공종 간섭", "기준 미달", "발주처 요청", "현장 여건", "기타"];
     public List<string> PriorityList { get; set; } = ["긴급", "높음", "보통", "낮음"];
     public List<CustomFieldDefinition> CustomFields { get; set; } = [];
+
+    // 관리자 마스터 비밀번호 (SHA-256 해시 및 Salt)
+    public string AdminPasswordHash { get; set; } = string.Empty;
+    public string AdminPasswordSalt { get; set; } = string.Empty;
+}
+
+public static class PasswordHelper
+{
+    public static string GenerateSalt()
+    {
+        byte[] bytes = new byte[16];
+        using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        rng.GetBytes(bytes);
+        return Convert.ToBase64String(bytes);
+    }
+
+    public static string HashPassword(string password, string salt)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        byte[] input = System.Text.Encoding.UTF8.GetBytes(salt + password);
+        byte[] hash = sha.ComputeHash(input);
+        return Convert.ToBase64String(hash);
+    }
+
+    public static bool VerifyPassword(string password, string salt, string hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(salt)) return false;
+        string computed = HashPassword(password, salt);
+        return string.Equals(computed, hash, StringComparison.Ordinal);
+    }
 }

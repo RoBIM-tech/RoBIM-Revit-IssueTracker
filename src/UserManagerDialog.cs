@@ -10,21 +10,31 @@ namespace RoBIM.Feature;
 
 public sealed class UserManagerDialog : Window
 {
+    private readonly IssueProjectConfig config;
     private readonly ObservableCollection<ProjectUser> users;
     private readonly ListView listView = new();
     private readonly TextBox nameBox = new() { MinWidth = 110 };
     private readonly TextBox companyBox = new() { MinWidth = 110 };
     private readonly TextBox revitUserBox = new() { MinWidth = 120 };
     private readonly CheckBox adminCheck = new() { Content = "관리자 권한 부여", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 6, 0, 0) };
+    private readonly Button toggleAdminBtn = new() { Content = "선택자 관리자 권한 전환", MinWidth = 135, Margin = new Thickness(0, 0, 6, 0) };
+    private readonly Button authAdminBtn = new() { MinWidth = 150, Margin = new Thickness(0, 0, 6, 0), FontWeight = FontWeights.SemiBold };
     private readonly string currentRevitUser;
+
+    private bool isUnlockedAsAdmin;
 
     public bool IsSaved { get; private set; }
 
-    public UserManagerDialog(List<ProjectUser> currentUsers, string currentRevitUser, string? promptMessage = null)
+    public UserManagerDialog(IssueProjectConfig config, string currentRevitUser, bool isCurrentOperatorAdmin, string? promptMessage = null)
     {
+        this.config = config;
         this.currentRevitUser = currentRevitUser;
+
+        // 이미 관리자로 등록된 사용자인 경우 즉시 인증 상태
+        isUnlockedAsAdmin = isCurrentOperatorAdmin;
+
         users = new ObservableCollection<ProjectUser>(
-            currentUsers.Select(u => new ProjectUser
+            config.Users.Select(u => new ProjectUser
             {
                 DisplayName = u.DisplayName,
                 Company = u.Company,
@@ -34,14 +44,46 @@ public sealed class UserManagerDialog : Window
 
         RoBimTheme.Apply(this);
         Title = "프로젝트 참여자(사용자) 관리 · 이름(회사) 및 관리자 권한";
-        Width = 650;
-        Height = 520;
+        Width = 680;
+        Height = 540;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         InitializeUI(promptMessage);
+        UpdateAdminControlsUI();
+    }
+
+    // 하위 호환용 오버로드
+    public UserManagerDialog(List<ProjectUser> currentUsers, string currentRevitUser, string? promptMessage = null)
+        : this(new IssueProjectConfig { Users = currentUsers }, currentRevitUser, true, promptMessage)
+    {
     }
 
     public List<ProjectUser> GetResultUsers() => users.ToList();
+
+    private void UpdateAdminControlsUI()
+    {
+        adminCheck.IsEnabled = isUnlockedAsAdmin;
+        toggleAdminBtn.IsEnabled = isUnlockedAsAdmin;
+
+        if (isUnlockedAsAdmin)
+        {
+            authAdminBtn.Content = "🔑 관리자 암호 변경";
+            authAdminBtn.ToolTip = "프로젝트 관리자 마스터 비밀번호를 변경합니다.";
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(config.AdminPasswordHash))
+            {
+                authAdminBtn.Content = "🔒 관리자 암호 최초 설정";
+                authAdminBtn.ToolTip = "이 프로젝트의 관리자 마스터 암호를 최초 설정하고 관리자 권한을 획득합니다.";
+            }
+            else
+            {
+                authAdminBtn.Content = "🔒 관리자 인증 (암호 입력)";
+                authAdminBtn.ToolTip = "마스터 비밀번호를 입력하여 관리자 권한을 획득합니다.";
+            }
+        }
+    }
 
     private void InitializeUI(string? promptMessage)
     {
@@ -66,7 +108,7 @@ public sealed class UserManagerDialog : Window
                     DisplayName = pendingName,
                     Company = companyBox.Text.Trim(),
                     RevitUsername = revitUserBox.Text.Trim(),
-                    IsAdmin = adminCheck.IsChecked == true
+                    IsAdmin = isUnlockedAsAdmin && adminCheck.IsChecked == true
                 });
             }
 
@@ -153,7 +195,6 @@ public sealed class UserManagerDialog : Window
         Grid.SetRow(btnPanel, 2); Grid.SetColumn(btnPanel, 0); Grid.SetColumnSpan(btnPanel, 4);
 
         var addBtn = new Button { Content = "사용자 추가", MinWidth = 85, Margin = new Thickness(0, 0, 6, 0) };
-        var toggleAdminBtn = new Button { Content = "선택자 관리자 권한 전환", MinWidth = 135, Margin = new Thickness(0, 0, 6, 0) };
         var deleteBtn = new Button { Content = "선택 삭제", MinWidth = 70 };
 
         addBtn.Click += (s, e) =>
@@ -171,7 +212,7 @@ public sealed class UserManagerDialog : Window
                 DisplayName = name,
                 Company = companyBox.Text.Trim(),
                 RevitUsername = revitUserBox.Text.Trim(),
-                IsAdmin = adminCheck.IsChecked == true
+                IsAdmin = isUnlockedAsAdmin && adminCheck.IsChecked == true
             });
 
             nameBox.Clear();
@@ -181,6 +222,12 @@ public sealed class UserManagerDialog : Window
 
         toggleAdminBtn.Click += (s, e) =>
         {
+            if (!isUnlockedAsAdmin)
+            {
+                MessageBox.Show(this, "관리자 권한을 수정하려면 먼저 관리자 인증이 필요합니다.", "권한 제한", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             if (listView.SelectedItem is ProjectUser selected)
             {
                 selected.IsAdmin = !selected.IsAdmin;
@@ -192,16 +239,24 @@ public sealed class UserManagerDialog : Window
             }
         };
 
+        authAdminBtn.Click += OnAuthAdminClicked;
+
         deleteBtn.Click += (s, e) =>
         {
             if (listView.SelectedItem is ProjectUser selected)
             {
+                if (selected.IsAdmin && !isUnlockedAsAdmin)
+                {
+                    MessageBox.Show(this, "관리자 계정은 관리자만 삭제할 수 있습니다.", "권한 제한", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
                 users.Remove(selected);
             }
         };
 
-        btnPanel.Children.Add(addBtn);
+        btnPanel.Children.Add(authAdminBtn);
         btnPanel.Children.Add(toggleAdminBtn);
+        btnPanel.Children.Add(addBtn);
         btnPanel.Children.Add(deleteBtn);
         grid.Children.Add(btnPanel);
 
@@ -219,5 +274,71 @@ public sealed class UserManagerDialog : Window
         listView.View = gridView;
         listView.ItemsSource = users;
         root.Children.Add(listView);
+    }
+
+    private void OnAuthAdminClicked(object sender, RoutedEventArgs e)
+    {
+        if (isUnlockedAsAdmin)
+        {
+            // 암호 변경 모드
+            var dlg = new AdminPasswordDialog(PasswordDialogMode.Change, config.AdminPasswordHash, config.AdminPasswordSalt) { Owner = this };
+            if (dlg.ShowDialog() == true && dlg.IsSuccess)
+            {
+                config.AdminPasswordHash = dlg.NewHash;
+                config.AdminPasswordSalt = dlg.NewSalt;
+                MessageBox.Show(this, "관리자 마스터 암호가 성공적으로 변경되었습니다.", "암호 변경 완료", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.AdminPasswordHash))
+        {
+            // 최초 암호 설정 모드
+            var dlg = new AdminPasswordDialog(PasswordDialogMode.SetInitial) { Owner = this };
+            if (dlg.ShowDialog() == true && dlg.IsSuccess)
+            {
+                config.AdminPasswordHash = dlg.NewHash;
+                config.AdminPasswordSalt = dlg.NewSalt;
+                isUnlockedAsAdmin = true;
+
+                // 현재 Revit 작업자가 목록에 있다면 바로 관리자로 승격 제안
+                var currentOp = users.FirstOrDefault(u =>
+                    (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase)) ||
+                    u.DisplayName.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase));
+                if (currentOp != null)
+                {
+                    currentOp.IsAdmin = true;
+                    listView.Items.Refresh();
+                }
+
+                UpdateAdminControlsUI();
+                MessageBox.Show(this, "관리자 마스터 암호가 설정되었으며, 관리자 권한이 활성화되었습니다.", "설정 완료", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return;
+        }
+
+        // 인증 모드
+        var verifyDlg = new AdminPasswordDialog(PasswordDialogMode.Verify, config.AdminPasswordHash, config.AdminPasswordSalt) { Owner = this };
+        if (verifyDlg.ShowDialog() == true && verifyDlg.IsSuccess)
+        {
+            isUnlockedAsAdmin = true;
+
+            var currentOp = users.FirstOrDefault(u =>
+                (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase)) ||
+                u.DisplayName.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase));
+
+            if (currentOp != null && !currentOp.IsAdmin)
+            {
+                var ask = MessageBox.Show(this, $"관리자 인증에 성공했습니다.\n현재 작업자 [{currentOp.DisplayText}]에게 관리자 권한을 부여하시겠습니까?", "관리자 권한 부여", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (ask == MessageBoxResult.Yes)
+                {
+                    currentOp.IsAdmin = true;
+                    listView.Items.Refresh();
+                }
+            }
+
+            UpdateAdminControlsUI();
+            MessageBox.Show(this, "관리자 인증이 완료되었습니다. 관리자 권한을 부여하거나 변경할 수 있습니다.", "인증 성공", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
     }
 }

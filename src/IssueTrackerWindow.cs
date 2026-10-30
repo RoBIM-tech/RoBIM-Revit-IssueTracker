@@ -190,8 +190,9 @@ public sealed class IssueTrackerWindow : Window
         if (needPrompt)
         {
             var dlg = new UserManagerDialog(
-                config.Users,
+                config,
                 revitUser,
+                IsCurrentOperatorAdmin(),
                 $"현재 Revit 사용자 [{revitUser}]가 참여자로 등록되지 않았습니다.\n이슈 작성자 및 담당자에 '이름 (회사)' 형태로 표시되도록 실명과 회사를 등록해 주세요.")
             {
                 Owner = this
@@ -202,6 +203,8 @@ public sealed class IssueTrackerWindow : Window
                 config.Users = dlg.GetResultUsers();
                 storage.SaveConfig(config);
                 UpdateUsersCombos();
+                UpdateCurrentUserUI();
+                UpdateCommentsUI();
             }
         }
     }
@@ -1730,7 +1733,7 @@ public sealed class IssueTrackerWindow : Window
 
     private void OpenUserManagerDialog(object sender, RoutedEventArgs e)
     {
-        var dlg = new UserManagerDialog(config.Users, doc.Application.Username) { Owner = this };
+        var dlg = new UserManagerDialog(config, doc.Application.Username, IsCurrentOperatorAdmin()) { Owner = this };
         if (dlg.ShowDialog() == true && dlg.IsSaved)
         {
             config.Users = dlg.GetResultUsers();
@@ -1738,7 +1741,7 @@ public sealed class IssueTrackerWindow : Window
             UpdateUsersCombos();
             UpdateCurrentUserUI();
             UpdateCommentsUI();
-            SetStatus("프로젝트 참여자 목록이 저장되었습니다.");
+            SetStatus("프로젝트 참여자 목록 및 관리자 권한이 저장되었습니다.");
         }
     }
 
