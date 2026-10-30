@@ -411,7 +411,7 @@ public sealed class IssueTrackerWindow : Window
                     "DisciplinesDisplay" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisciplinesDisplay"), SortMemberPath = "Discipline1", Width = col.Width },
                     "SourceModel" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("SourceModelDisplay"), SortMemberPath = "SourceModel", Width = col.Width },
                     "Title" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Title"), SortMemberPath = "Title", Width = new DataGridLength(1, DataGridLengthUnitType.Star) },
-                    "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedTo"), SortMemberPath = "AssignedTo", Width = col.Width },
+                    "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedToDisplay"), SortMemberPath = "AssignedTo", Width = col.Width },
                     "CreatedBy" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedBy"), SortMemberPath = "CreatedBy", Width = col.Width },
                     "CommentsSummary" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CommentsSummary"), SortMemberPath = "Comments.Count", Width = col.Width },
                     "LinkedView" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("LinkedViewName"), SortMemberPath = "LinkedViewName", Width = col.Width },
@@ -711,7 +711,7 @@ public sealed class IssueTrackerWindow : Window
 
     private void UpdateUsersCombos()
     {
-        var options = new List<string>();
+        var options = new List<string> { "(미지정)" };
         foreach (var u in config.Users)
         {
             options.Add(u.DisplayText); // 이름 (회사)
@@ -772,9 +772,14 @@ public sealed class IssueTrackerWindow : Window
 
     private string ResolveCurrentAuthor() => GetCurrentOperatorDisplayText();
 
-    private string NormalizeAuthor(string? rawAuthor)
+    private string NormalizeAuthor(string? rawAuthor, bool allowEmpty = false)
     {
-        if (string.IsNullOrWhiteSpace(rawAuthor)) return ResolveCurrentAuthor();
+        if (string.IsNullOrWhiteSpace(rawAuthor)) return allowEmpty ? "" : ResolveCurrentAuthor();
+
+        if (rawAuthor.Equals("(미지정)", StringComparison.OrdinalIgnoreCase) || rawAuthor.Equals("미지정", StringComparison.OrdinalIgnoreCase))
+        {
+            return allowEmpty ? "" : "(미지정)";
+        }
 
         // 이미 '이름 (회사)' 형식이면 그대로 반환
         if (rawAuthor.Contains("(") && rawAuthor.Contains(")"))
@@ -803,7 +808,7 @@ public sealed class IssueTrackerWindow : Window
         {
             // 작성자/담당자 문자열을 이름(회사) 포맷으로 정규화
             item.CreatedBy = NormalizeAuthor(item.CreatedBy);
-            item.AssignedTo = NormalizeAuthor(item.AssignedTo);
+            item.AssignedTo = NormalizeAuthor(item.AssignedTo, allowEmpty: true);
             issues.Add(item);
         }
         UpdateModelFilterOptions();
@@ -872,7 +877,7 @@ public sealed class IssueTrackerWindow : Window
                               i.Title.ToLowerInvariant().Contains(query) ||
                               i.DisplayNumber.ToLowerInvariant().Contains(query) ||
                               i.SourceModelDisplay.ToLowerInvariant().Contains(query) ||
-                              i.AssignedTo.ToLowerInvariant().Contains(query) ||
+                              i.AssignedToDisplay.ToLowerInvariant().Contains(query) ||
                               i.CreatedBy.ToLowerInvariant().Contains(query) ||
                               i.Discipline1.ToLowerInvariant().Contains(query) ||
                               i.Discipline2.ToLowerInvariant().Contains(query) ||
@@ -898,6 +903,7 @@ public sealed class IssueTrackerWindow : Window
             Discipline2 = "(해당 없음)",
             Type = "설계검토",
             RootCause = "미지정",
+            AssignedTo = "",
             CreatedBy = currentAuthor,
             SourceModel = currentModelName
         };
@@ -981,7 +987,7 @@ public sealed class IssueTrackerWindow : Window
         discipline1Combo.Text = item.Discipline1;
         discipline2Combo.Text = item.Discipline2;
         typeCombo.Text = item.Type;
-        assignedToCombo.Text = NormalizeAuthor(item.AssignedTo);
+        assignedToCombo.Text = string.IsNullOrWhiteSpace(item.AssignedTo) ? "(미지정)" : NormalizeAuthor(item.AssignedTo, allowEmpty: true);
         createdByBox.Text = NormalizeAuthor(item.CreatedBy);
         sourceModelBox.Text = item.SourceModelDisplay;
 
@@ -1514,7 +1520,11 @@ public sealed class IssueTrackerWindow : Window
 
         // Check if author or assigned user exists in config, prompt/register if new
         string assignedText = assignedToCombo.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(assignedText))
+        if (assignedText.Equals("(미지정)", StringComparison.OrdinalIgnoreCase) || assignedText.Equals("미지정", StringComparison.OrdinalIgnoreCase))
+        {
+            assignedText = "";
+        }
+        else if (!string.IsNullOrWhiteSpace(assignedText))
         {
             var matchedUser = config.Users.FirstOrDefault(u => u.DisplayText.Equals(assignedText, StringComparison.OrdinalIgnoreCase) || u.DisplayName.Equals(assignedText, StringComparison.OrdinalIgnoreCase));
             if (matchedUser == null)

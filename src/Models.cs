@@ -43,6 +43,7 @@ public sealed class IssueItem
     public string Discipline2 { get; set; } = "(해당 없음)";
 
     public string AssignedTo { get; set; } = string.Empty;
+    public string AssignedToDisplay => string.IsNullOrWhiteSpace(AssignedTo) ? "(미지정)" : AssignedTo;
     public string CreatedBy { get; set; } = string.Empty;
     public string DueDate { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
