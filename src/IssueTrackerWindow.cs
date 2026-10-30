@@ -48,7 +48,7 @@ public sealed class IssueTrackerWindow : Window
 
     // UI Controls - Filter & List
     private readonly WpfTextBox searchBox = new() { MinWidth = 110 };
-    private readonly WpfComboBox modelFilterCombo = new() { MinWidth = 140 };
+    private readonly WpfComboBox modelFilterCombo = new() { MinWidth = 165 };
     private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 85 };
     private readonly WpfComboBox priorityFilterCombo = new() { MinWidth = 80 };
     private readonly CheckBox archiveFilterCheck = new() { Content = "보관함(아카이브)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
@@ -338,7 +338,7 @@ public sealed class IssueTrackerWindow : Window
         searchBox.TextChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(searchBox);
 
-        filterBar.Children.Add(new TextBlock { Text = " 파일: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        filterBar.Children.Add(new TextBlock { Text = " 보기 범위: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
         modelFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(modelFilterCombo);
 
@@ -719,13 +719,13 @@ public sealed class IssueTrackerWindow : Window
 
         var items = new List<string>
         {
-            "전체 파일 통합",
-            $"현재 파일만 ({currentModelName})"
+            "모든 모델 이슈 보기",
+            $"현재 모델만 ({currentModelName})"
         };
 
         foreach (var om in otherModels)
         {
-            items.Add($"파일: {om}");
+            items.Add($"{om} 이슈만");
         }
 
         modelFilterCombo.ItemsSource = items;
@@ -745,7 +745,7 @@ public sealed class IssueTrackerWindow : Window
         string query = searchBox.Text.Trim().ToLowerInvariant();
         string statusFilter = statusFilterCombo.SelectedItem?.ToString() ?? "전체";
         string priorityFilter = priorityFilterCombo.SelectedItem?.ToString() ?? "전체";
-        string modelFilter = modelFilterCombo.SelectedItem?.ToString() ?? "전체 파일 통합";
+        string modelFilter = modelFilterCombo.SelectedItem?.ToString() ?? "모든 모델 이슈 보기";
 
         var filtered = issues.Where(i =>
         {
@@ -753,14 +753,14 @@ public sealed class IssueTrackerWindow : Window
             bool matchPriority = priorityFilter == "전체" || i.Priority.Equals(priorityFilter, StringComparison.OrdinalIgnoreCase);
 
             bool matchModel = true;
-            if (modelFilter.StartsWith("현재 파일만"))
+            if (modelFilter.StartsWith("현재 모델만"))
             {
                 matchModel = string.IsNullOrWhiteSpace(i.SourceModel) ||
                              i.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase);
             }
-            else if (modelFilter.StartsWith("파일: "))
+            else if (modelFilter.EndsWith(" 이슈만"))
             {
-                string target = modelFilter.Substring("파일: ".Length).Trim();
+                string target = modelFilter.Substring(0, modelFilter.Length - " 이슈만".Length).Trim();
                 matchModel = i.SourceModel.Equals(target, StringComparison.OrdinalIgnoreCase);
             }
 
