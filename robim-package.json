@@ -9,7 +9,7 @@
       "folder": "RoBIM.Feature.IssueTracker.bundle",
       "distribution": "release",
       "asset": "RoBIM.Feature.IssueTracker-Revit2026.zip",
-      "description": "BIM 이슈 검토 · 독립 Add-in",
+      "description": "BIM 이슈 검토",
       "channel": "test",
       "moduleId": "issue-tracker",
       "commandId": "run"

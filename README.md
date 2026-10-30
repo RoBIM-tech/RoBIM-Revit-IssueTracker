@@ -2,14 +2,14 @@
 
 [일반 사용자 설명서](docs/user/README.md) · [개발자 설명서](docs/developer/README.md) · [전용 스킬](.codex/skills/robim-issue-tracker/SKILL.md)
 
-RoBIM 독립 Revit Add-in의 TEST 시작 예제입니다. 지원: Windows x64, Revit 2026.5+ / .NET 10. pyRevit이 필요하지 않습니다.
+RoBIM Revit Add-in의 TEST 시작 예제입니다. 지원: Windows x64, Revit 2026.5+ / .NET 10. pyRevit이 필요하지 않습니다.
 
 ## 개발
 
 1. RoBIM-Libraries와 이 저장소를 clone합니다. 중앙 카탈로그 등록을 원할 때만 RoBIM-Add-in-Manager도 clone합니다. Libraries에서 `./pack.ps1`을 실행합니다.
 2. `src/Command.cs`를 수정합니다. 현재 예제는 읽기 전용 알림입니다. 실제 문서 수정은 미리보기 승인 후 Revit 명령의 Transaction에서 수행합니다.
 3. `./build.ps1 -CommonFeed <Libraries clone>/artifacts/packages`를 실행합니다. 선택적으로 -ManagerPath를 제공해 중앙 등록과의 일치도 검사합니다.
-4. `artifacts/<version>/RoBIM.Feature.IssueTracker-Revit2026.zip`와 `.sha256`을 Manager의 도구 등록 → 독립 Revit ZIP 가져오기로 확인합니다.
+4. `artifacts/<version>/RoBIM.Feature.IssueTracker-Revit2026.zip`와 `.sha256`을 Manager의 도구 등록 → Revit ZIP 가져오기로 확인합니다.
 5. TEST 도구에서 설치하기를 누릅니다. 별도 기능 목록 보기 없이 준비하며 기본 리본 위치를 자동 추가합니다. 기존 사용자 배치는 유지하고 실행 중 Revit에 자동 적용을 요청합니다. 최초 고정 Host 설치는 Revit 종료가 필요합니다.
 6. 실제 Revit에서 실행·취소·오류 복원·Reload를 검증하고 사용자 설명서와 개발자 설명서를 완성합니다.
 
