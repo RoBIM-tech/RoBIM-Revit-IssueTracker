@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "issue-tracker",
+  "version": "0.1.0-test.1",
+  "reloadPolicy": "command-only",
+  "commands": [
+    {
+      "id": "run",
+      "title": "BIM 이슈 검토",
+      "description": "BIM 이슈 검토",
+      "tab": "RoBIM TEST",
+      "panel": "독립 도구 TEST",
+      "assembly": "Contents/2026/RoBIM.Feature.IssueTracker.dll",
+      "type": "RoBIM.Feature.Command"
+    }
+  ]
+}

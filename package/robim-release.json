@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "id": "issue-tracker",
+      "version": "0.1.0-test.1",
+      "channel": "test",
+      "libraries": [
+        {
+          "id": "RoBIM.Common",
+          "version": "0.1.0"
+        },
+        {
+          "id": "RoBIM.Wpf",
+          "version": "0.1.0"
+        }
+      ]
+    }
+  ]
+}
