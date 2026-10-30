@@ -81,7 +81,7 @@ public sealed class AdminPasswordDialog : Window
 
         int r = 0;
 
-        if (mode == PasswordDialogMode.Change)
+        if (mode == PasswordDialogMode.Change && !string.IsNullOrWhiteSpace(existingHash))
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var lblOld = new TextBlock { Text = "현재 비밀번호 *:", VerticalAlignment = VerticalAlignment.Center };
@@ -180,7 +180,7 @@ public sealed class AdminPasswordDialog : Window
             return;
         }
 
-        if (mode == PasswordDialogMode.Change)
+        if (mode == PasswordDialogMode.Change && !string.IsNullOrWhiteSpace(existingHash))
         {
             string oldPwd = oldPasswordBox.Password;
             if (!PasswordHelper.VerifyPassword(oldPwd, existingSalt ?? "", existingHash ?? ""))

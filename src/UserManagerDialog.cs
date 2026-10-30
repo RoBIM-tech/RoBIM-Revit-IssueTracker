@@ -65,23 +65,20 @@ public sealed class UserManagerDialog : Window
         adminCheck.IsEnabled = isUnlockedAsAdmin;
         toggleAdminBtn.IsEnabled = isUnlockedAsAdmin;
 
-        if (isUnlockedAsAdmin)
+        if (string.IsNullOrWhiteSpace(config.AdminPasswordHash))
         {
-            authAdminBtn.Content = "🔑 관리자 암호 변경";
-            authAdminBtn.ToolTip = "프로젝트 관리자 마스터 비밀번호를 변경합니다.";
+            authAdminBtn.Content = "🔒 관리자 암호 최초 설정";
+            authAdminBtn.ToolTip = "이 프로젝트의 관리자 마스터 암호를 최초 설정합니다.";
+        }
+        else if (isUnlockedAsAdmin)
+        {
+            authAdminBtn.Content = "🔑 관리자 암호 재설정";
+            authAdminBtn.ToolTip = "프로젝트 관리자 마스터 비밀번호를 재설정합니다.";
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(config.AdminPasswordHash))
-            {
-                authAdminBtn.Content = "🔒 관리자 암호 최초 설정";
-                authAdminBtn.ToolTip = "이 프로젝트의 관리자 마스터 암호를 최초 설정하고 관리자 권한을 획득합니다.";
-            }
-            else
-            {
-                authAdminBtn.Content = "🔒 관리자 인증 (암호 입력)";
-                authAdminBtn.ToolTip = "마스터 비밀번호를 입력하여 관리자 권한을 획득합니다.";
-            }
+            authAdminBtn.Content = "🔒 관리자 인증 (암호 입력)";
+            authAdminBtn.ToolTip = "마스터 비밀번호를 입력하여 관리자 권한을 획득합니다.";
         }
     }
 
@@ -278,22 +275,9 @@ public sealed class UserManagerDialog : Window
 
     private void OnAuthAdminClicked(object sender, RoutedEventArgs e)
     {
-        if (isUnlockedAsAdmin)
-        {
-            // 암호 변경 모드
-            var dlg = new AdminPasswordDialog(PasswordDialogMode.Change, config.AdminPasswordHash, config.AdminPasswordSalt) { Owner = this };
-            if (dlg.ShowDialog() == true && dlg.IsSuccess)
-            {
-                config.AdminPasswordHash = dlg.NewHash;
-                config.AdminPasswordSalt = dlg.NewSalt;
-                MessageBox.Show(this, "관리자 마스터 암호가 성공적으로 변경되었습니다.", "암호 변경 완료", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            return;
-        }
-
+        // 1. 암호가 아직 설정되지 않은 경우 -> 관리자 여부와 무관하게 [최초 설정] 모드
         if (string.IsNullOrWhiteSpace(config.AdminPasswordHash))
         {
-            // 최초 암호 설정 모드
             var dlg = new AdminPasswordDialog(PasswordDialogMode.SetInitial) { Owner = this };
             if (dlg.ShowDialog() == true && dlg.IsSuccess)
             {
@@ -301,7 +285,7 @@ public sealed class UserManagerDialog : Window
                 config.AdminPasswordSalt = dlg.NewSalt;
                 isUnlockedAsAdmin = true;
 
-                // 현재 Revit 작업자가 목록에 있다면 바로 관리자로 승격 제안
+                // 현재 Revit 작업자가 목록에 있다면 바로 관리자로 승격
                 var currentOp = users.FirstOrDefault(u =>
                     (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase)) ||
                     u.DisplayName.Equals(currentRevitUser, StringComparison.OrdinalIgnoreCase));
@@ -317,7 +301,21 @@ public sealed class UserManagerDialog : Window
             return;
         }
 
-        // 인증 모드
+        // 2. 이미 관리자로 권한을 가진 작업자인 경우 -> 이미 인증된 관리자이므로 모르는 이전 암호 요구 없이 바로 새 암호로 재설정 가능
+        if (isUnlockedAsAdmin)
+        {
+            var dlg = new AdminPasswordDialog(PasswordDialogMode.SetInitial) { Owner = this, Title = "🔑 관리자 마스터 암호 재설정" };
+            if (dlg.ShowDialog() == true && dlg.IsSuccess)
+            {
+                config.AdminPasswordHash = dlg.NewHash;
+                config.AdminPasswordSalt = dlg.NewSalt;
+                UpdateAdminControlsUI();
+                MessageBox.Show(this, "관리자 마스터 암호가 성공적으로 재설정되었습니다.", "재설정 완료", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return;
+        }
+
+        // 3. 비관리자 -> 마스터 암호 입력하여 관리자 인증
         var verifyDlg = new AdminPasswordDialog(PasswordDialogMode.Verify, config.AdminPasswordHash, config.AdminPasswordSalt) { Owner = this };
         if (verifyDlg.ShowDialog() == true && verifyDlg.IsSuccess)
         {

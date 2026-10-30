@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "issue-tracker",
-  "version": "0.1.1-test.1",
+  "version": "0.1.1-test.2",
   "reloadPolicy": "command-only",
   "commands": [
     {
