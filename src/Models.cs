@@ -45,6 +45,10 @@ public sealed class IssueItem
     public string Location { get; set; } = string.Empty;
     public string RootCause { get; set; } = "미지정";
 
+    // 작성 모델 (파일명, 예: Project_ARC.rvt)
+    public string SourceModel { get; set; } = string.Empty;
+    public string SourceModelDisplay => string.IsNullOrWhiteSpace(SourceModel) ? "(공통)" : SourceModel;
+
     // 연계 뷰 정보
     public long LinkedViewId { get; set; }
     public string LinkedViewUniqueId { get; set; } = string.Empty;

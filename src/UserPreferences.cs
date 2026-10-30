@@ -33,6 +33,7 @@ public static class UserPreferences
         new ColumnPreferenceItem { ColumnId = "Status", HeaderText = "상태", IsVisible = true, Width = 75 },
         new ColumnPreferenceItem { ColumnId = "Priority", HeaderText = "우선순위", IsVisible = true, Width = 70 },
         new ColumnPreferenceItem { ColumnId = "DisciplinesDisplay", HeaderText = "공종(간섭)", IsVisible = true, Width = 110 },
+        new ColumnPreferenceItem { ColumnId = "SourceModel", HeaderText = "작성 모델", IsVisible = true, Width = 110 },
         new ColumnPreferenceItem { ColumnId = "Title", HeaderText = "제목", IsVisible = true, Width = 200 },
         new ColumnPreferenceItem { ColumnId = "AssignedTo", HeaderText = "담당자", IsVisible = true, Width = 110 },
         new ColumnPreferenceItem { ColumnId = "CreatedBy", HeaderText = "작성자", IsVisible = true, Width = 110 },

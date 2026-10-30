@@ -184,7 +184,7 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         }
         else
         {
-            OnError?.Invoke("해당 ID의 객체를 현재 모델에서 찾을 수 없습니다.");
+            OnError?.Invoke("해당 ID의 객체를 현재 열려 있는 모델에서 찾을 수 없습니다. 타 공종 모델에서 생성된 객체인 경우 해당 원본 모델 파일을 열어 확인하세요.");
         }
     }
 
@@ -201,6 +201,10 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
                 {
                     uidoc.ActiveView = viewElem;
                 }
+            }
+            else
+            {
+                OnError?.Invoke($"연계된 뷰(ID: {TargetViewId})를 현재 모델에서 찾을 수 없습니다. 타 모델의 뷰인 경우 해당 원본 모델 파일을 확인하세요.");
             }
         }
 

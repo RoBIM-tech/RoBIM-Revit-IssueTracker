@@ -30,6 +30,7 @@ public sealed class IssueTrackerWindow : Window
     private readonly IssueStorage storage;
     private readonly ExternalEvent revitEvent;
     private readonly IssueExternalEventHandler eventHandler;
+    private readonly string currentModelName;
 
     private IssueProjectConfig config;
     private List<ColumnPreferenceItem> columnPrefs;
@@ -46,7 +47,8 @@ public sealed class IssueTrackerWindow : Window
     private readonly Button refreshBtn = new() { Content = "새로고침", Margin = new Thickness(4, 0, 0, 0) };
 
     // UI Controls - Filter & List
-    private readonly WpfTextBox searchBox = new() { MinWidth = 130 };
+    private readonly WpfTextBox searchBox = new() { MinWidth = 110 };
+    private readonly WpfComboBox modelFilterCombo = new() { MinWidth = 140 };
     private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 85 };
     private readonly WpfComboBox priorityFilterCombo = new() { MinWidth = 80 };
     private readonly CheckBox archiveFilterCheck = new() { Content = "보관함(아카이브)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
@@ -77,6 +79,7 @@ public sealed class IssueTrackerWindow : Window
     private readonly DatePicker dueDatePicker = new();
     private readonly WpfTextBox locationBox = new();
     private readonly WpfComboBox rootCauseCombo = new() { IsEditable = true };
+    private readonly WpfTextBox sourceModelBox = new() { IsReadOnly = true, Background = Brushes.WhiteSmoke };
     private readonly WpfTextBox descBox = new() { AcceptsReturn = true, MinHeight = 60, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
     // Linked View Controls
@@ -123,6 +126,7 @@ public sealed class IssueTrackerWindow : Window
         this.revitEvent = revitEvent;
         this.eventHandler = eventHandler;
         this.storage = new IssueStorage(doc);
+        this.currentModelName = IssueStorage.GetModelName(doc);
 
         Instance = this;
         Closed += (s, e) => { Instance = null; };
@@ -292,6 +296,11 @@ public sealed class IssueTrackerWindow : Window
         folderPathText.Text = storage.IssueDirectory;
         folderPathText.ToolTip = storage.IssueDirectory;
         folderInfo.Children.Add(folderPathText);
+
+        folderInfo.Children.Add(new TextBlock { Text = "  |  현재 모델: ", FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 0, 0, 0) });
+        var modelTag = new TextBlock { Text = currentModelName, FontWeight = FontWeights.SemiBold, Foreground = Brushes.RoyalBlue, ToolTip = currentModelName };
+        folderInfo.Children.Add(modelTag);
+
         topBar.Children.Add(folderInfo);
 
         root.Children.Add(topBar);
@@ -329,7 +338,11 @@ public sealed class IssueTrackerWindow : Window
         searchBox.TextChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(searchBox);
 
-        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+        filterBar.Children.Add(new TextBlock { Text = " 파일: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        modelFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
+        filterBar.Children.Add(modelFilterCombo);
+
+        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
         statusFilterCombo.ItemsSource = new[] { "전체", "Open", "In Review", "Pending", "Closed", "Void" };
         statusFilterCombo.SelectedIndex = 0;
         statusFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
@@ -385,6 +398,7 @@ public sealed class IssueTrackerWindow : Window
                     "Status" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Status"), SortMemberPath = "Status", Width = col.Width },
                     "Priority" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Priority"), SortMemberPath = "Priority", Width = col.Width },
                     "DisciplinesDisplay" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisciplinesDisplay"), SortMemberPath = "Discipline1", Width = col.Width },
+                    "SourceModel" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("SourceModelDisplay"), SortMemberPath = "SourceModel", Width = col.Width },
                     "Title" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Title"), SortMemberPath = "Title", Width = new DataGridLength(1, DataGridLengthUnitType.Star) },
                     "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedTo"), SortMemberPath = "AssignedTo", Width = col.Width },
                     "CreatedBy" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedBy"), SortMemberPath = "CreatedBy", Width = col.Width },
@@ -449,7 +463,7 @@ public sealed class IssueTrackerWindow : Window
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(85) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
         {
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
@@ -483,6 +497,9 @@ public sealed class IssueTrackerWindow : Window
         AddGridRow(g, 5, "위치/층:", locationBox, 1, 1);
         rootCauseCombo.ItemsSource = config.RootCauseList;
         AddGridRow(g, 5, "근본 원인:", rootCauseCombo, 3, 1);
+
+        // Row 6: Source Model
+        AddGridRow(g, 6, "작성 모델:", sourceModelBox, 1, 3);
 
         form.Children.Add(g);
 
@@ -685,7 +702,42 @@ public sealed class IssueTrackerWindow : Window
             item.AssignedTo = NormalizeAuthor(item.AssignedTo);
             issues.Add(item);
         }
+        UpdateModelFilterOptions();
         ApplyFilter();
+    }
+
+    private void UpdateModelFilterOptions()
+    {
+        string? prevSelection = modelFilterCombo.SelectedItem?.ToString();
+
+        var otherModels = issues
+            .Select(i => i.SourceModel?.Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s) && !s.Equals(currentModelName, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s)
+            .ToList();
+
+        var items = new List<string>
+        {
+            "전체 파일 통합",
+            $"현재 파일만 ({currentModelName})"
+        };
+
+        foreach (var om in otherModels)
+        {
+            items.Add($"파일: {om}");
+        }
+
+        modelFilterCombo.ItemsSource = items;
+
+        if (!string.IsNullOrWhiteSpace(prevSelection) && items.Contains(prevSelection))
+        {
+            modelFilterCombo.SelectedItem = prevSelection;
+        }
+        else
+        {
+            modelFilterCombo.SelectedIndex = 0;
+        }
     }
 
     private void ApplyFilter()
@@ -693,21 +745,37 @@ public sealed class IssueTrackerWindow : Window
         string query = searchBox.Text.Trim().ToLowerInvariant();
         string statusFilter = statusFilterCombo.SelectedItem?.ToString() ?? "전체";
         string priorityFilter = priorityFilterCombo.SelectedItem?.ToString() ?? "전체";
+        string modelFilter = modelFilterCombo.SelectedItem?.ToString() ?? "전체 파일 통합";
 
         var filtered = issues.Where(i =>
         {
             bool matchStatus = statusFilter == "전체" || i.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase);
             bool matchPriority = priorityFilter == "전체" || i.Priority.Equals(priorityFilter, StringComparison.OrdinalIgnoreCase);
+
+            bool matchModel = true;
+            if (modelFilter.StartsWith("현재 파일만"))
+            {
+                matchModel = string.IsNullOrWhiteSpace(i.SourceModel) ||
+                             i.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase);
+            }
+            else if (modelFilter.StartsWith("파일: "))
+            {
+                string target = modelFilter.Substring("파일: ".Length).Trim();
+                matchModel = i.SourceModel.Equals(target, StringComparison.OrdinalIgnoreCase);
+            }
+
             bool matchQuery = string.IsNullOrWhiteSpace(query) ||
                               i.Title.ToLowerInvariant().Contains(query) ||
                               i.DisplayNumber.ToLowerInvariant().Contains(query) ||
+                              i.SourceModelDisplay.ToLowerInvariant().Contains(query) ||
                               i.AssignedTo.ToLowerInvariant().Contains(query) ||
                               i.CreatedBy.ToLowerInvariant().Contains(query) ||
                               i.Discipline1.ToLowerInvariant().Contains(query) ||
                               i.Discipline2.ToLowerInvariant().Contains(query) ||
                               i.LinkedViewName.ToLowerInvariant().Contains(query) ||
                               i.Location.ToLowerInvariant().Contains(query);
-            return matchStatus && matchPriority && matchQuery;
+
+            return matchStatus && matchPriority && matchModel && matchQuery;
         }).ToList();
 
         issueGrid.ItemsSource = filtered;
@@ -725,7 +793,8 @@ public sealed class IssueTrackerWindow : Window
             Discipline2 = "(해당 없음)",
             Type = "설계검토",
             RootCause = "미지정",
-            CreatedBy = currentAuthor
+            CreatedBy = currentAuthor,
+            SourceModel = currentModelName
         };
 
         try
@@ -744,7 +813,7 @@ public sealed class IssueTrackerWindow : Window
         }
 
         formHeaderTitle.Text = "새 이슈 등록";
-        formHeaderSubtitle.Text = "작성자: " + currentAuthor;
+        formHeaderSubtitle.Text = $"작성자: {currentAuthor} | 작성 파일: {currentModelName}";
         archiveIssueBtn.Visibility = WpfVisibility.Collapsed;
         restoreIssueBtn.Visibility = WpfVisibility.Collapsed;
         saveIssueBtn.IsEnabled = true;
@@ -757,7 +826,8 @@ public sealed class IssueTrackerWindow : Window
         currentEditingIssue = item;
         formHeaderTitle.Text = $"이슈 {item.DisplayNumber} · {item.Title}";
         string displayAuthor = NormalizeAuthor(item.CreatedBy);
-        formHeaderSubtitle.Text = $"[{item.Status}] · [{item.Priority}] · [{item.DisciplinesDisplay}] | 작성자: {displayAuthor} ({item.CreatedAt:yyyy-MM-dd HH:mm})";
+        string srcModel = item.SourceModelDisplay;
+        formHeaderSubtitle.Text = $"[{item.Status}] · [{item.Priority}] · [{item.DisciplinesDisplay}] | 모델: {srcModel} | 작성자: {displayAuthor} ({item.CreatedAt:yyyy-MM-dd HH:mm})";
 
         if (item.IsArchived)
         {
@@ -785,6 +855,7 @@ public sealed class IssueTrackerWindow : Window
         typeCombo.Text = item.Type;
         assignedToCombo.Text = NormalizeAuthor(item.AssignedTo);
         createdByCombo.Text = NormalizeAuthor(item.CreatedBy);
+        sourceModelBox.Text = item.SourceModelDisplay;
 
         if (DateTime.TryParse(item.DueDate, out var dt))
             dueDatePicker.SelectedDate = dt;
@@ -1137,6 +1208,12 @@ public sealed class IssueTrackerWindow : Window
     {
         if (currentEditingIssue == null || currentEditingIssue.LinkedViewId <= 0) return;
 
+        if (!string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel) &&
+            !currentEditingIssue.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"참고: 해당 연계 뷰는 '{currentEditingIssue.SourceModel}' 모델의 뷰입니다. (현재 모델: {currentModelName})");
+        }
+
         eventHandler.CurrentAction = IssueRevitAction.SwitchToViewAndHighlight;
         eventHandler.TargetViewId = currentEditingIssue.LinkedViewId;
         eventHandler.TargetElementIds = currentEditingIssue.ElementIds;
@@ -1167,6 +1244,12 @@ public sealed class IssueTrackerWindow : Window
     private void HighlightElementsInRevit(object sender, RoutedEventArgs e)
     {
         if (currentEditingIssue == null || currentEditingIssue.ElementIds.Count == 0) return;
+
+        if (!string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel) &&
+            !currentEditingIssue.SourceModel.Equals(currentModelName, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"참고: 해당 객체는 '{currentEditingIssue.SourceModel}' 모델의 객체입니다. (현재 모델: {currentModelName})");
+        }
 
         eventHandler.CurrentAction = IssueRevitAction.HighlightElements;
         eventHandler.TargetElementIds = currentEditingIssue.ElementIds;
@@ -1318,11 +1401,28 @@ public sealed class IssueTrackerWindow : Window
         currentEditingIssue.Description = descBox.Text;
         currentEditingIssue.CustomFields = CollectCustomFieldValues();
 
+        if (isNew || string.IsNullOrWhiteSpace(currentEditingIssue.SourceModel))
+        {
+            currentEditingIssue.SourceModel = currentModelName;
+        }
+
         storage.SaveIssue(currentEditingIssue, config);
 
+        string savedId = currentEditingIssue.Id;
         SetStatus($"이슈 {currentEditingIssue.DisplayNumber} 저장 완료.");
         LoadIssues();
-        PrepareNewIssue();
+
+        // 저장 후 새 이슈로 리셋되지 않고 현재 이슈를 그대로 유지하여 계속 확인/수정 가능하도록 처리
+        var reloaded = issues.FirstOrDefault(x => x.Id == savedId);
+        if (reloaded != null)
+        {
+            issueGrid.SelectedItem = reloaded;
+            EditIssue(reloaded);
+        }
+        else
+        {
+            EditIssue(currentEditingIssue);
+        }
     }
 
     private void ArchiveCurrentIssue()

@@ -80,6 +80,44 @@ public sealed class IssueStorage
         return Path.Combine(baseFolder, "issue");
     }
 
+    public static string GetModelName(Document doc)
+    {
+        try
+        {
+            if (doc.IsWorkshared)
+            {
+                var centralPath = doc.GetWorksharingCentralModelPath();
+                if (centralPath != null)
+                {
+                    string visiblePath = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
+                    if (!string.IsNullOrWhiteSpace(visiblePath))
+                    {
+                        return Path.GetFileName(visiblePath);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fallback
+        }
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(doc.PathName))
+            {
+                return Path.GetFileName(doc.PathName);
+            }
+        }
+        catch
+        {
+            // Ignored
+        }
+
+        string title = doc.Title ?? "Untitled";
+        return title.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase) ? title : $"{title}.rvt";
+    }
+
     public IssueProjectConfig LoadConfig()
     {
         string configPath = Path.Combine(IssueDirectory, "fields_schema.json");
