@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 
 namespace RoBIM.Feature;
@@ -16,6 +17,7 @@ public sealed class IssueStorage
     };
 
     public string IssueDirectory { get; }
+    public string ArchiveDirectory => Path.Combine(IssueDirectory, "archive");
 
     public IssueStorage(Document doc)
     {
@@ -23,6 +25,10 @@ public sealed class IssueStorage
         if (!Directory.Exists(IssueDirectory))
         {
             Directory.CreateDirectory(IssueDirectory);
+        }
+        if (!Directory.Exists(ArchiveDirectory))
+        {
+            Directory.CreateDirectory(ArchiveDirectory);
         }
     }
 
@@ -47,7 +53,7 @@ public sealed class IssueStorage
         }
         catch
         {
-            // Fallback to local PathName if CentralModelPath resolution fails (e.g. detached or disconnected)
+            // Fallback
         }
 
         if (string.IsNullOrWhiteSpace(baseFolder))
@@ -65,7 +71,6 @@ public sealed class IssueStorage
             }
         }
 
-        // If still empty (e.g. unsaved project or cloud model without local path), use Documents folder
         if (string.IsNullOrWhiteSpace(baseFolder))
         {
             string safeDocName = string.Join("_", doc.Title.Split(Path.GetInvalidFileNameChars()));
@@ -86,10 +91,8 @@ public sealed class IssueStorage
                 var config = JsonSerializer.Deserialize<IssueProjectConfig>(json, JsonOptions);
                 if (config != null)
                 {
-                    if (config.Discipline1List == null || config.Discipline1List.Count == 0)
-                        config.Discipline1List = ["건축", "구조", "기계", "전기", "통신", "소방", "토목", "조경", "기타"];
-                    if (config.Discipline2List == null || config.Discipline2List.Count == 0)
-                        config.Discipline2List = ["일반", "골조", "마감", "배관", "덕트", "케이블트레이", "소화배관", "외부토공", "기타"];
+                    if (config.DisciplineList == null || config.DisciplineList.Count == 0)
+                        config.DisciplineList = ["건축", "구조", "기계", "전기", "통신", "소방", "토목", "조경", "골조", "마감", "배관", "덕트", "케이블트레이", "기타"];
                     if (config.TypeList == null || config.TypeList.Count == 0)
                         config.TypeList = ["설계검토", "품질", "간섭(Clash)", "안전", "시공성", "법규/인허가", "기타"];
                     if (config.RootCauseList == null || config.RootCauseList.Count == 0)
@@ -103,7 +106,7 @@ public sealed class IssueStorage
             }
             catch
             {
-                // Return default on parse failure
+                // Fallback
             }
         }
 
@@ -126,7 +129,7 @@ public sealed class IssueStorage
         File.WriteAllText(configPath, json);
     }
 
-    public List<IssueItem> LoadAllIssues()
+    public List<IssueItem> LoadAllIssues(bool includeArchived = false)
     {
         var list = new List<IssueItem>();
         if (!Directory.Exists(IssueDirectory)) return list;
@@ -139,51 +142,185 @@ public sealed class IssueStorage
                 var item = JsonSerializer.Deserialize<IssueItem>(json, JsonOptions);
                 if (item != null)
                 {
+                    item.IsArchived = false;
+                    NormalizeSnapshots(item);
                     list.Add(item);
                 }
             }
             catch
             {
-                // Skip corrupted files
+                // Skip
+            }
+        }
+
+        if (includeArchived && Directory.Exists(ArchiveDirectory))
+        {
+            foreach (var file in Directory.GetFiles(ArchiveDirectory, "ISSUE-*.json"))
+            {
+                try
+                {
+                    string json = File.ReadAllText(file);
+                    var item = JsonSerializer.Deserialize<IssueItem>(json, JsonOptions);
+                    if (item != null)
+                    {
+                        item.IsArchived = true;
+                        NormalizeSnapshots(item);
+                        list.Add(item);
+                    }
+                }
+                catch
+                {
+                    // Skip
+                }
             }
         }
 
         return list.OrderByDescending(x => x.Number).ToList();
     }
 
+    private static void NormalizeSnapshots(IssueItem item)
+    {
+        if (item.SnapshotFileNames == null) item.SnapshotFileNames = [];
+        if (!string.IsNullOrWhiteSpace(item.SnapshotFileName) && !item.SnapshotFileNames.Contains(item.SnapshotFileName))
+        {
+            item.SnapshotFileNames.Insert(0, item.SnapshotFileName);
+        }
+    }
+
     public void SaveIssue(IssueItem item, IssueProjectConfig config)
     {
         if (string.IsNullOrWhiteSpace(item.Id))
         {
-            item.Number = config.NextNumber++;
+            int maxExisting = GetMaxIssueNumber();
+            item.Number = Math.Max(config.NextNumber, maxExisting + 1);
+            config.NextNumber = item.Number + 1;
             item.Id = $"ISSUE-{item.Number:D4}";
             SaveConfig(config);
         }
 
         item.UpdatedAt = DateTime.Now;
-        string path = Path.Combine(IssueDirectory, $"{item.Id}.json");
+        if (item.SnapshotFileNames.Count > 0)
+        {
+            item.SnapshotFileName = item.SnapshotFileNames[0];
+        }
+
+        string targetDir = item.IsArchived ? ArchiveDirectory : IssueDirectory;
+        if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
+
+        string path = Path.Combine(targetDir, $"{item.Id}.json");
         string json = JsonSerializer.Serialize(item, JsonOptions);
         File.WriteAllText(path, json);
     }
 
-    public void DeleteIssue(string issueId)
+    private int GetMaxIssueNumber()
     {
-        string jsonPath = Path.Combine(IssueDirectory, $"{issueId}.json");
-        if (File.Exists(jsonPath))
+        int max = 0;
+        var dirs = new[] { IssueDirectory, ArchiveDirectory };
+        foreach (var dir in dirs)
         {
-            File.Delete(jsonPath);
+            if (!Directory.Exists(dir)) continue;
+            foreach (var file in Directory.GetFiles(dir, "ISSUE-*.json"))
+            {
+                string fn = Path.GetFileNameWithoutExtension(file);
+                var match = Regex.Match(fn, @"ISSUE-(\d+)");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out int n))
+                {
+                    if (n > max) max = n;
+                }
+            }
         }
+        return max;
+    }
 
-        string imagePath = Path.Combine(IssueDirectory, $"{issueId}_snapshot.png");
-        if (File.Exists(imagePath))
+    public void ArchiveIssue(string issueId)
+    {
+        if (!Directory.Exists(ArchiveDirectory)) Directory.CreateDirectory(ArchiveDirectory);
+
+        string srcJson = Path.Combine(IssueDirectory, $"{issueId}.json");
+        if (File.Exists(srcJson))
         {
-            File.Delete(imagePath);
+            try
+            {
+                string json = File.ReadAllText(srcJson);
+                var item = JsonSerializer.Deserialize<IssueItem>(json, JsonOptions);
+                if (item != null)
+                {
+                    item.IsArchived = true;
+                    item.ArchivedAt = DateTime.Now;
+                    string destJson = Path.Combine(ArchiveDirectory, $"{issueId}.json");
+                    File.WriteAllText(destJson, JsonSerializer.Serialize(item, JsonOptions));
+                    File.Delete(srcJson);
+
+                    // Move snapshots
+                    foreach (var snap in item.SnapshotFileNames)
+                    {
+                        string srcSnap = Path.Combine(IssueDirectory, snap);
+                        string destSnap = Path.Combine(ArchiveDirectory, snap);
+                        if (File.Exists(srcSnap))
+                        {
+                            if (File.Exists(destSnap)) File.Delete(destSnap);
+                            File.Move(srcSnap, destSnap);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback direct move
+                string destJson = Path.Combine(ArchiveDirectory, $"{issueId}.json");
+                if (File.Exists(destJson)) File.Delete(destJson);
+                File.Move(srcJson, destJson);
+            }
         }
     }
 
-    public string GetSnapshotFullPath(string? fileName)
+    public void RestoreIssue(string issueId)
+    {
+        string srcJson = Path.Combine(ArchiveDirectory, $"{issueId}.json");
+        if (File.Exists(srcJson))
+        {
+            try
+            {
+                string json = File.ReadAllText(srcJson);
+                var item = JsonSerializer.Deserialize<IssueItem>(json, JsonOptions);
+                if (item != null)
+                {
+                    item.IsArchived = false;
+                    item.ArchivedAt = null;
+                    string destJson = Path.Combine(IssueDirectory, $"{issueId}.json");
+                    File.WriteAllText(destJson, JsonSerializer.Serialize(item, JsonOptions));
+                    File.Delete(srcJson);
+
+                    // Restore snapshots
+                    foreach (var snap in item.SnapshotFileNames)
+                    {
+                        string srcSnap = Path.Combine(ArchiveDirectory, snap);
+                        string destSnap = Path.Combine(IssueDirectory, snap);
+                        if (File.Exists(srcSnap))
+                        {
+                            if (File.Exists(destSnap)) File.Delete(destSnap);
+                            File.Move(srcSnap, destSnap);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback direct move
+                string destJson = Path.Combine(IssueDirectory, $"{issueId}.json");
+                if (File.Exists(destJson)) File.Delete(destJson);
+                File.Move(srcJson, destJson);
+            }
+        }
+    }
+
+    public string GetSnapshotFullPath(string? fileName, bool isArchived = false)
     {
         if (string.IsNullOrWhiteSpace(fileName)) return string.Empty;
-        return Path.Combine(IssueDirectory, fileName);
+        string activePath = Path.Combine(IssueDirectory, fileName);
+        if (File.Exists(activePath)) return activePath;
+        string archivePath = Path.Combine(ArchiveDirectory, fileName);
+        if (File.Exists(archivePath)) return archivePath;
+        return isArchived ? archivePath : activePath;
     }
 }

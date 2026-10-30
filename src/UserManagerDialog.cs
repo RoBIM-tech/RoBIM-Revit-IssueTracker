@@ -12,36 +12,36 @@ public sealed class UserManagerDialog : Window
 {
     private readonly ObservableCollection<ProjectUser> users;
     private readonly ListView listView = new();
-    private readonly TextBox nameBox = new() { MinWidth = 100 };
-    private readonly TextBox revitUserBox = new() { MinWidth = 110 };
-    private readonly TextBox companyBox = new() { MinWidth = 90 };
+    private readonly TextBox nameBox = new() { MinWidth = 110 };
+    private readonly TextBox companyBox = new() { MinWidth = 110 };
+    private readonly TextBox revitUserBox = new() { MinWidth = 120 };
     private readonly string currentRevitUser;
 
     public bool IsSaved { get; private set; }
 
-    public UserManagerDialog(List<ProjectUser> currentUsers, string currentRevitUser)
+    public UserManagerDialog(List<ProjectUser> currentUsers, string currentRevitUser, string? promptMessage = null)
     {
         this.currentRevitUser = currentRevitUser;
         users = new ObservableCollection<ProjectUser>(
             currentUsers.Select(u => new ProjectUser
             {
                 DisplayName = u.DisplayName,
-                RevitUsername = u.RevitUsername,
-                Company = u.Company
+                Company = u.Company,
+                RevitUsername = u.RevitUsername
             }));
 
         RoBimTheme.Apply(this);
-        Title = "프로젝트 참여자(사용자) 관리";
-        Width = 580;
-        Height = 460;
+        Title = "프로젝트 참여자(사용자) 관리 · 이름(회사)";
+        Width = 620;
+        Height = 490;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        InitializeUI();
+        InitializeUI(promptMessage);
     }
 
     public List<ProjectUser> GetResultUsers() => users.ToList();
 
-    private void InitializeUI()
+    private void InitializeUI(string? promptMessage)
     {
         var root = new DockPanel { Margin = new Thickness(12) };
         Content = root;
@@ -60,6 +60,29 @@ public sealed class UserManagerDialog : Window
         bottomPanel.Children.Add(cancelBtn);
         root.Children.Add(bottomPanel);
 
+        // Optional Prompt Message Banner
+        if (!string.IsNullOrWhiteSpace(promptMessage))
+        {
+            var banner = new Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(30, 255, 140, 0)),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 140, 0)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            DockPanel.SetDock(banner, Dock.Top);
+            banner.Child = new TextBlock
+            {
+                Text = promptMessage,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(200, 80, 0))
+            };
+            root.Children.Add(banner);
+        }
+
         // Top Add Box
         var groupBox = new GroupBox
         {
@@ -74,31 +97,31 @@ public sealed class UserManagerDialog : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(85) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(105) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(85) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         grid.Children.Add(new TextBlock { Text = "이름(실명) *:", VerticalAlignment = VerticalAlignment.Center });
         Grid.SetRow(nameBox, 0); Grid.SetColumn(nameBox, 1);
         grid.Children.Add(nameBox);
 
-        var revitLabel = new TextBlock { Text = "Revit 사용자명:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
-        Grid.SetRow(revitLabel, 0); Grid.SetColumn(revitLabel, 2);
+        var compLabel = new TextBlock { Text = "소속/회사 *:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+        Grid.SetRow(compLabel, 0); Grid.SetColumn(compLabel, 2);
+        grid.Children.Add(compLabel);
+        Grid.SetRow(companyBox, 0); Grid.SetColumn(companyBox, 3);
+        grid.Children.Add(companyBox);
+
+        var revitLabel = new TextBlock { Text = "Revit ID:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) };
+        Grid.SetRow(revitLabel, 1); Grid.SetColumn(revitLabel, 0);
         grid.Children.Add(revitLabel);
         revitUserBox.Text = currentRevitUser;
-        Grid.SetRow(revitUserBox, 0); Grid.SetColumn(revitUserBox, 3);
+        revitUserBox.Margin = new Thickness(0, 6, 0, 0);
+        Grid.SetRow(revitUserBox, 1); Grid.SetColumn(revitUserBox, 1);
         grid.Children.Add(revitUserBox);
-
-        var compLabel = new TextBlock { Text = "소속/회사:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) };
-        Grid.SetRow(compLabel, 1); Grid.SetColumn(compLabel, 0);
-        grid.Children.Add(compLabel);
-        companyBox.Margin = new Thickness(0, 6, 0, 0);
-        Grid.SetRow(companyBox, 1); Grid.SetColumn(companyBox, 1);
-        grid.Children.Add(companyBox);
 
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 0, 0) };
         Grid.SetRow(btnPanel, 1); Grid.SetColumn(btnPanel, 2); Grid.SetColumnSpan(btnPanel, 2);
 
-        var addBtn = new Button { Content = "사용자 추가", MinWidth = 80, Margin = new Thickness(0, 0, 6, 0) };
+        var addBtn = new Button { Content = "사용자 추가", MinWidth = 85, Margin = new Thickness(0, 0, 6, 0) };
         var deleteBtn = new Button { Content = "선택 삭제", MinWidth = 70 };
 
         addBtn.Click += (s, e) =>
@@ -107,14 +130,15 @@ public sealed class UserManagerDialog : Window
             if (string.IsNullOrWhiteSpace(name))
             {
                 MessageBox.Show(this, "이름을 입력해 주세요.", "안내", MessageBoxButton.OK, MessageBoxImage.Warning);
+                nameBox.Focus();
                 return;
             }
 
             users.Add(new ProjectUser
             {
                 DisplayName = name,
-                RevitUsername = revitUserBox.Text.Trim(),
-                Company = companyBox.Text.Trim()
+                Company = companyBox.Text.Trim(),
+                RevitUsername = revitUserBox.Text.Trim()
             });
 
             nameBox.Clear();
@@ -138,10 +162,10 @@ public sealed class UserManagerDialog : Window
 
         // User List
         var gridView = new GridView();
-        gridView.Columns.Add(new GridViewColumn { Header = "이름(표시)", DisplayMemberBinding = new System.Windows.Data.Binding("DisplayName"), Width = 130 });
-        gridView.Columns.Add(new GridViewColumn { Header = "Revit 사용자명", DisplayMemberBinding = new System.Windows.Data.Binding("RevitUsername"), Width = 150 });
+        gridView.Columns.Add(new GridViewColumn { Header = "이름(실명)", DisplayMemberBinding = new System.Windows.Data.Binding("DisplayName"), Width = 110 });
         gridView.Columns.Add(new GridViewColumn { Header = "소속/회사", DisplayMemberBinding = new System.Windows.Data.Binding("Company"), Width = 130 });
-        gridView.Columns.Add(new GridViewColumn { Header = "선택 표시 텍스트", DisplayMemberBinding = new System.Windows.Data.Binding("DisplayText"), Width = 130 });
+        gridView.Columns.Add(new GridViewColumn { Header = "Revit 사용자명", DisplayMemberBinding = new System.Windows.Data.Binding("RevitUsername"), Width = 130 });
+        gridView.Columns.Add(new GridViewColumn { Header = "표시 형태: 이름 (회사)", DisplayMemberBinding = new System.Windows.Data.Binding("DisplayText"), Width = 180 });
 
         listView.View = gridView;
         listView.ItemsSource = users;

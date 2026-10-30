@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -18,6 +19,7 @@ using WpfTextBox = System.Windows.Controls.TextBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfVisibility = System.Windows.Visibility;
 using WpfBinding = System.Windows.Data.Binding;
+using MediaColor = System.Windows.Media.Color;
 
 namespace RoBIM.Feature;
 
@@ -36,33 +38,38 @@ public sealed class IssueTrackerWindow : Window
     private IssueItem? currentEditingIssue;
 
     // UI Controls - Header
-    private readonly TextBlock folderPathText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 320 };
+    private readonly TextBlock folderPathText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 280 };
     private readonly Button openFolderBtn = new() { Content = "폴더 열기", Margin = new Thickness(4, 0, 0, 0) };
-    private readonly Button newIssueBtn = new() { Content = "+ 새 이슈 등록", MinWidth = 100, Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button newIssueBtn = new() { Content = "+ 새 이슈 등록", MinWidth = 95, Margin = new Thickness(4, 0, 0, 0), FontWeight = FontWeights.SemiBold };
     private readonly Button manageUsersBtn = new() { Content = "참여자 관리", Margin = new Thickness(4, 0, 0, 0) };
-    private readonly Button configColumnsBtn = new() { Content = "열 설정", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button configColumnsBtn = new() { Content = "상단 제목/열 설정", Margin = new Thickness(4, 0, 0, 0) };
     private readonly Button configFieldsBtn = new() { Content = "분류/필드 설정", Margin = new Thickness(4, 0, 0, 0) };
     private readonly Button refreshBtn = new() { Content = "새로고침", Margin = new Thickness(4, 0, 0, 0) };
 
     // UI Controls - Filter & List
-    private readonly WpfTextBox searchBox = new() { MinWidth = 140 };
-    private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 90 };
+    private readonly WpfTextBox searchBox = new() { MinWidth = 130 };
+    private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 85 };
     private readonly WpfComboBox priorityFilterCombo = new() { MinWidth = 80 };
+    private readonly CheckBox archiveFilterCheck = new() { Content = "보관함(아카이브)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
     private readonly DataGrid issueGrid = new()
     {
         AutoGenerateColumns = false,
         CanUserAddRows = false,
         CanUserDeleteRows = false,
+        CanUserSortColumns = true, // 헤더 클릭 시 오름차순/내림차순 정렬 지원
         IsReadOnly = true,
         SelectionMode = DataGridSelectionMode.Single,
         HeadersVisibility = DataGridHeadersVisibility.All
     };
 
     // UI Controls - Form
-    private readonly TextBlock formHeader = new() { FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) };
+    private readonly StackPanel formHeaderPanel = new() { Margin = new Thickness(0, 0, 0, 10) };
+    private readonly TextBlock formHeaderTitle = new() { FontSize = 16, FontWeight = FontWeights.Bold };
+    private readonly TextBlock formHeaderSubtitle = new() { FontSize = 12, Foreground = Brushes.Gray, Margin = new Thickness(0, 2, 0, 0) };
+
     private readonly WpfTextBox titleBox = new();
     private readonly WpfComboBox statusCombo = new();
-    private readonly WpfComboBox priorityCombo = new();
+    private readonly WpfComboBox priorityCombo = new() { IsEditable = true };
     private readonly WpfComboBox discipline1Combo = new() { IsEditable = true };
     private readonly WpfComboBox discipline2Combo = new() { IsEditable = true };
     private readonly WpfComboBox typeCombo = new() { IsEditable = true };
@@ -71,7 +78,7 @@ public sealed class IssueTrackerWindow : Window
     private readonly DatePicker dueDatePicker = new();
     private readonly WpfTextBox locationBox = new();
     private readonly WpfComboBox rootCauseCombo = new() { IsEditable = true };
-    private readonly WpfTextBox descBox = new() { AcceptsReturn = true, MinHeight = 65, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly WpfTextBox descBox = new() { AcceptsReturn = true, MinHeight = 60, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
     // Linked View Controls
     private readonly TextBlock linkedViewText = new() { Text = "(연계된 뷰 없음)", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
@@ -81,26 +88,32 @@ public sealed class IssueTrackerWindow : Window
 
     // Element Link Controls
     private readonly TextBlock linkedElementsText = new() { Text = "(선택된 객체 없음)", VerticalAlignment = VerticalAlignment.Center };
-    private readonly Button pickRectElementsBtn = new() { Content = "영역 드래그 선택(박스)", Margin = new Thickness(4, 0, 0, 0), ToolTip = "마우스로 드래그하여 영역 내 객체들을 한 번에 선택합니다." };
+    private readonly Button pickRectElementsBtn = new() { Content = "영역 드래그(박스)", Margin = new Thickness(4, 0, 0, 0), ToolTip = "마우스로 드래그하여 영역 내 객체들을 한 번에 선택합니다." };
     private readonly Button getSelectedElementsBtn = new() { Content = "현재 선택 객체", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Revit 화면에서 이미 선택되어 있는 객체들을 가져옵니다." };
     private readonly Button pickElementsBtn = new() { Content = "다중 클릭 선택", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Ctrl 키를 누른 채 객체들을 하나씩 클릭하여 선택합니다." };
     private readonly Button highlightElementsBtn = new() { Content = "객체로 이동/줌", Margin = new Thickness(4, 0, 0, 0), IsEnabled = false };
     private readonly Button clearElementsBtn = new() { Content = "해제", Margin = new Thickness(4, 0, 0, 0) };
 
-    // Snapshot Controls
-    private readonly System.Windows.Controls.Image snapshotPreview = new() { MaxHeight = 150, Stretch = Stretch.Uniform, Margin = new Thickness(0, 4, 0, 4) };
-    private readonly Button captureViewBtn = new() { Content = "현재 화면 캡처", Margin = new Thickness(0, 0, 6, 0) };
-    private readonly Button clearSnapshotBtn = new() { Content = "캡처 삭제" };
-    private string? currentSnapshotFileName;
+    // Snapshot Multi Gallery Controls
+    private readonly WrapPanel snapshotGalleryPanel = new();
+    private readonly Button captureViewBtn = new() { Content = "현재 화면 캡처 추가", Margin = new Thickness(0, 0, 6, 0) };
+    private readonly Button addLocalImageBtn = new() { Content = "외부 이미지 추가", Margin = new Thickness(0, 0, 6, 0) };
+    private readonly TextBlock snapshotCountText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray };
+
+    // Comments & History Controls
+    private readonly StackPanel commentsListPanel = new();
+    private readonly WpfTextBox newCommentBox = new() { AcceptsReturn = true, MinHeight = 45, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly Button addCommentBtn = new() { Content = "댓글 등록", MinWidth = 80, Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
 
     // Dynamic Custom Fields Container
     private readonly StackPanel customFieldsPanel = new();
     private readonly Dictionary<string, System.Windows.UIElement> customFieldControls = [];
 
     // Form Action Buttons
-    private readonly Button saveIssueBtn = new() { Content = "저장", MinWidth = 90, FontWeight = FontWeights.SemiBold };
-    private readonly Button deleteIssueBtn = new() { Content = "삭제", MinWidth = 70, Margin = new Thickness(6, 0, 0, 0) };
-    private readonly Button cancelEditBtn = new() { Content = "취소", MinWidth = 70, Margin = new Thickness(6, 0, 0, 0) };
+    private readonly Button saveIssueBtn = new() { Content = "저장", MinWidth = 85, FontWeight = FontWeights.SemiBold };
+    private readonly Button archiveIssueBtn = new() { Content = "보관함 이동(삭제)", MinWidth = 110, Margin = new Thickness(6, 0, 0, 0) };
+    private readonly Button restoreIssueBtn = new() { Content = "보관함에서 복원", MinWidth = 110, Margin = new Thickness(6, 0, 0, 0), Visibility = WpfVisibility.Collapsed };
+    private readonly Button cancelEditBtn = new() { Content = "취소", MinWidth = 65, Margin = new Thickness(6, 0, 0, 0) };
 
     // Status bar
     private readonly TextBlock statusBarText = new() { Text = "준비 완료" };
@@ -117,10 +130,10 @@ public sealed class IssueTrackerWindow : Window
 
         RoBimTheme.Apply(this);
         Title = $"BIM 이슈 검토 (ACC 스타일) · {version} · {doc.Title}";
-        Width = 1120;
-        Height = 750;
-        MinWidth = 920;
-        MinHeight = 600;
+        Width = 1140;
+        Height = 780;
+        MinWidth = 940;
+        MinHeight = 620;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         try
@@ -134,17 +147,44 @@ public sealed class IssueTrackerWindow : Window
         }
         catch
         {
-            // Ignore icon load failure
+            // Ignore
         }
 
         config = storage.LoadConfig();
-        columnPrefs = UserPreferences.LoadColumns();
+        columnPrefs = UserPreferences.LoadColumns(config.CustomFields);
 
         SetupEventHandlerCallbacks();
         InitializeUI();
         BuildGridColumns();
+        CheckAndPromptInitialUser();
         LoadIssues();
         PrepareNewIssue();
+    }
+
+    private void CheckAndPromptInitialUser()
+    {
+        string revitUser = doc.Application.Username;
+        if (!string.IsNullOrWhiteSpace(revitUser))
+        {
+            var matched = config.Users.FirstOrDefault(u => u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
+            if (matched == null)
+            {
+                var dlg = new UserManagerDialog(
+                    config.Users,
+                    revitUser,
+                    $"현재 Revit 로그인 사용자 [{revitUser}]가 참여자로 등록되지 않았습니다.\n원활한 이슈 작성자 연계를 위해 실명과 소속 회사를 등록해 주세요.")
+                {
+                    Owner = this
+                };
+
+                if (dlg.ShowDialog() == true && dlg.IsSaved)
+                {
+                    config.Users = dlg.GetResultUsers();
+                    storage.SaveConfig(config);
+                    UpdateAssignedToUsersList();
+                }
+            }
+        }
     }
 
     private void SetupEventHandlerCallbacks()
@@ -178,9 +218,13 @@ public sealed class IssueTrackerWindow : Window
         {
             Dispatcher.Invoke(() =>
             {
-                currentSnapshotFileName = fileName;
-                UpdateSnapshotPreview();
-                SetStatus($"현재 뷰가 캡처되었습니다: {fileName}");
+                if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
+                if (!currentEditingIssue.SnapshotFileNames.Contains(fileName))
+                {
+                    currentEditingIssue.SnapshotFileNames.Add(fileName);
+                }
+                UpdateSnapshotGalleryUI();
+                SetStatus($"새 스냅샷이 추가되었습니다: {fileName}");
             });
         };
 
@@ -245,7 +289,7 @@ public sealed class IssueTrackerWindow : Window
         // 3. Main Split View: Left List (46%), Right Form (54%)
         var mainGrid = new WpfGrid();
         mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46, GridUnitType.Star) });
-        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) }); // Splitter
+        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
         mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54, GridUnitType.Star) });
 
         var leftPanel = BuildLeftListPanel();
@@ -275,17 +319,21 @@ public sealed class IssueTrackerWindow : Window
         searchBox.TextChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(searchBox);
 
-        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
         statusFilterCombo.ItemsSource = new[] { "전체", "Open", "In Review", "Pending", "Closed", "Void" };
         statusFilterCombo.SelectedIndex = 0;
         statusFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(statusFilterCombo);
 
-        filterBar.Children.Add(new TextBlock { Text = " 우선순위: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
-        priorityFilterCombo.ItemsSource = new[] { "전체", "긴급", "높음", "보통", "낮음" };
+        filterBar.Children.Add(new TextBlock { Text = " 우선: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+        priorityFilterCombo.ItemsSource = new[] { "전체" }.Concat(config.PriorityList).ToArray();
         priorityFilterCombo.SelectedIndex = 0;
         priorityFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(priorityFilterCombo);
+
+        archiveFilterCheck.Checked += (s, e) => LoadIssues();
+        archiveFilterCheck.Unchecked += (s, e) => LoadIssues();
+        filterBar.Children.Add(archiveFilterCheck);
 
         panel.Children.Add(filterBar);
 
@@ -307,23 +355,40 @@ public sealed class IssueTrackerWindow : Window
 
         foreach (var col in columnPrefs.Where(c => c.IsVisible))
         {
-            DataGridColumn dgc = col.ColumnId switch
+            DataGridColumn dgc;
+            if (col.IsCustomField)
             {
-                "Number" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisplayNumber"), Width = col.Width },
-                "Status" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Status"), Width = col.Width },
-                "Priority" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Priority"), Width = col.Width },
-                "Discipline1" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Discipline1"), Width = col.Width },
-                "Discipline2" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Discipline2"), Width = col.Width },
-                "Title" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Title"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) },
-                "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedTo"), Width = col.Width },
-                "CreatedBy" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedBy"), Width = col.Width },
-                "LinkedView" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("LinkedViewName"), Width = col.Width },
-                "Elements" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("ElementsSummary"), Width = col.Width },
-                "DueDate" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DueDate"), Width = col.Width },
-                "Location" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Location"), Width = col.Width },
-                "CreatedAt" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedAt") { StringFormat = "yyyy-MM-dd" }, Width = col.Width },
-                _ => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding(col.ColumnId), Width = col.Width }
-            };
+                string cfId = col.ColumnId.Replace("CF_", "");
+                dgc = new DataGridTextColumn
+                {
+                    Header = col.HeaderText,
+                    Binding = new WpfBinding($"CustomFields[{cfId}]"),
+                    Width = col.Width,
+                    CanUserSort = false
+                };
+            }
+            else
+            {
+                dgc = col.ColumnId switch
+                {
+                    "Number" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisplayNumber"), SortMemberPath = "Number", Width = col.Width },
+                    "Status" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Status"), SortMemberPath = "Status", Width = col.Width },
+                    "Priority" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Priority"), SortMemberPath = "Priority", Width = col.Width },
+                    "DisciplinesDisplay" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisciplinesDisplay"), SortMemberPath = "Discipline1", Width = col.Width },
+                    "Title" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Title"), SortMemberPath = "Title", Width = new DataGridLength(1, DataGridLengthUnitType.Star) },
+                    "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedTo"), SortMemberPath = "AssignedTo", Width = col.Width },
+                    "CreatedBy" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedBy"), SortMemberPath = "CreatedBy", Width = col.Width },
+                    "CommentsSummary" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CommentsSummary"), SortMemberPath = "Comments.Count", Width = col.Width },
+                    "LinkedView" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("LinkedViewName"), SortMemberPath = "LinkedViewName", Width = col.Width },
+                    "Elements" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("ElementsSummary"), Width = col.Width, CanUserSort = false },
+                    "DueDate" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DueDate"), SortMemberPath = "DueDate", Width = col.Width },
+                    "Type" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Type"), SortMemberPath = "Type", Width = col.Width },
+                    "RootCause" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("RootCause"), SortMemberPath = "RootCause", Width = col.Width },
+                    "Location" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Location"), SortMemberPath = "Location", Width = col.Width },
+                    "CreatedAt" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedAt") { StringFormat = "yyyy-MM-dd" }, SortMemberPath = "CreatedAt", Width = col.Width },
+                    _ => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding(col.ColumnId), SortMemberPath = col.ColumnId, Width = col.Width }
+                };
+            }
             issueGrid.Columns.Add(dgc);
         }
     }
@@ -346,11 +411,13 @@ public sealed class IssueTrackerWindow : Window
         DockPanel.SetDock(bottomActions, Dock.Bottom);
 
         saveIssueBtn.Click += (s, e) => SaveCurrentIssue();
-        deleteIssueBtn.Click += (s, e) => DeleteCurrentIssue();
+        archiveIssueBtn.Click += (s, e) => ArchiveCurrentIssue();
+        restoreIssueBtn.Click += (s, e) => RestoreCurrentIssue();
         cancelEditBtn.Click += (s, e) => PrepareNewIssue();
 
         bottomActions.Children.Add(saveIssueBtn);
-        bottomActions.Children.Add(deleteIssueBtn);
+        bottomActions.Children.Add(archiveIssueBtn);
+        bottomActions.Children.Add(restoreIssueBtn);
         bottomActions.Children.Add(cancelEditBtn);
         root.Children.Add(bottomActions);
 
@@ -360,7 +427,10 @@ public sealed class IssueTrackerWindow : Window
         scroll.Content = form;
         root.Children.Add(scroll);
 
-        form.Children.Add(formHeader);
+        // Form Header
+        formHeaderPanel.Children.Add(formHeaderTitle);
+        formHeaderPanel.Children.Add(formHeaderSubtitle);
+        form.Children.Add(formHeaderPanel);
 
         // Standard Fields Grid
         var g = new WpfGrid { Margin = new Thickness(0, 0, 0, 10) };
@@ -383,13 +453,13 @@ public sealed class IssueTrackerWindow : Window
         priorityCombo.ItemsSource = config.PriorityList;
         AddGridRow(g, 1, "우선순위:", priorityCombo, 3, 1);
 
-        // Row 2: Discipline 1 & Discipline 2 (기본 격상)
-        discipline1Combo.ItemsSource = config.Discipline1List;
+        // Row 2: Discipline 1 & Discipline 2 (간섭 대비 2개 공종 선택)
+        discipline1Combo.ItemsSource = config.DisciplineList;
         AddGridRow(g, 2, "공종 1:", discipline1Combo, 1, 1);
-        discipline2Combo.ItemsSource = config.Discipline2List;
-        AddGridRow(g, 2, "공종 2:", discipline2Combo, 3, 1);
+        discipline2Combo.ItemsSource = new[] { "(해당 없음)" }.Concat(config.DisciplineList).ToList();
+        AddGridRow(g, 2, "공종 2(간섭):", discipline2Combo, 3, 1);
 
-        // Row 3: AssignedTo & CreatedBy (Revit Username 연계)
+        // Row 3: AssignedTo & CreatedBy (이름 (회사) 포맷)
         UpdateAssignedToUsersList();
         AddGridRow(g, 3, "담당자:", assignedToCombo, 1, 1);
         AddGridRow(g, 3, "작성자:", createdByBox, 3, 1);
@@ -465,22 +535,22 @@ public sealed class IssueTrackerWindow : Window
         elemGroup.Content = elemStack;
         form.Children.Add(elemGroup);
 
-        // Snapshot Section
-        var snapGroup = new GroupBox { Header = "화면 캡처 (스냅샷)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
+        // Snapshot Section (Multi-Image Gallery)
+        var snapGroup = new GroupBox { Header = "화면 캡처 (스냅샷 갤러리 - 클릭 시 확대)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
         var snapStack = new StackPanel();
         var snapBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
 
         captureViewBtn.Click += CaptureActiveViewFromRevit;
-        clearSnapshotBtn.Click += (s, e) =>
-        {
-            currentSnapshotFileName = null;
-            UpdateSnapshotPreview();
-        };
+        addLocalImageBtn.Click += AddLocalImageSnapshot;
 
         snapBar.Children.Add(captureViewBtn);
-        snapBar.Children.Add(clearSnapshotBtn);
+        snapBar.Children.Add(addLocalImageBtn);
+        snapBar.Children.Add(snapshotCountText);
         snapStack.Children.Add(snapBar);
-        snapStack.Children.Add(snapshotPreview);
+
+        var snapScroll = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(0, 4, 0, 4) };
+        snapScroll.Content = snapshotGalleryPanel;
+        snapStack.Children.Add(snapScroll);
         snapGroup.Content = snapStack;
         form.Children.Add(snapGroup);
 
@@ -488,6 +558,24 @@ public sealed class IssueTrackerWindow : Window
         var customGroup = new GroupBox { Header = "사용자 정의 필드", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
         customGroup.Content = customFieldsPanel;
         form.Children.Add(customGroup);
+
+        // Comments & Activity History Section (제일 아래 댓글)
+        var commentsGroup = new GroupBox { Header = "활동 내역 및 댓글 (Comments)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(8) };
+        var commentsStack = new StackPanel();
+
+        commentsStack.Children.Add(commentsListPanel);
+
+        var inputBorder = new Border { BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(6), Margin = new Thickness(0, 8, 0, 0) };
+        var inputStack = new StackPanel();
+        inputStack.Children.Add(new TextBlock { Text = "새 댓글 작성:", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
+        inputStack.Children.Add(newCommentBox);
+        addCommentBtn.Click += AddUserComment;
+        inputStack.Children.Add(addCommentBtn);
+        inputBorder.Child = inputStack;
+        commentsStack.Children.Add(inputBorder);
+
+        commentsGroup.Content = commentsStack;
+        form.Children.Add(commentsGroup);
 
         return border;
     }
@@ -517,7 +605,7 @@ public sealed class IssueTrackerWindow : Window
         var options = new List<string>();
         foreach (var u in config.Users)
         {
-            options.Add(u.DisplayText);
+            options.Add(u.DisplayText); // 이름 (회사)
         }
         assignedToCombo.ItemsSource = options;
     }
@@ -528,7 +616,7 @@ public sealed class IssueTrackerWindow : Window
         var matched = config.Users.FirstOrDefault(u => u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
         if (matched != null)
         {
-            return matched.DisplayText;
+            return matched.DisplayText; // 이름 (회사)
         }
 
         return !string.IsNullOrWhiteSpace(revitUser) ? revitUser : Environment.UserName;
@@ -537,8 +625,11 @@ public sealed class IssueTrackerWindow : Window
     private void LoadIssues()
     {
         issues.Clear();
-        var list = storage.LoadAllIssues();
-        foreach (var item in list)
+        bool showArchived = archiveFilterCheck.IsChecked == true;
+        var list = storage.LoadAllIssues(includeArchived: true);
+
+        var targetList = showArchived ? list.Where(x => x.IsArchived) : list.Where(x => !x.IsArchived);
+        foreach (var item in targetList)
         {
             issues.Add(item);
         }
@@ -576,14 +667,13 @@ public sealed class IssueTrackerWindow : Window
         {
             Status = "Open",
             Priority = "보통",
-            Discipline1 = config.Discipline1List.FirstOrDefault() ?? "건축",
-            Discipline2 = config.Discipline2List.FirstOrDefault() ?? "일반",
+            Discipline1 = config.DisciplineList.FirstOrDefault() ?? "건축",
+            Discipline2 = "(해당 없음)",
             Type = "설계검토",
             RootCause = "미지정",
             CreatedBy = ResolveCurrentAuthor()
         };
 
-        // Automatically link active view for new issues
         try
         {
             var av = doc.ActiveView;
@@ -596,19 +686,37 @@ public sealed class IssueTrackerWindow : Window
         }
         catch
         {
-            // Ignore view capture on startup
+            // Ignore
         }
 
-        formHeader.Text = "새 이슈 작성";
-        deleteIssueBtn.Visibility = WpfVisibility.Collapsed;
+        formHeaderTitle.Text = "새 이슈 등록";
+        formHeaderSubtitle.Text = "작성자: " + currentEditingIssue.CreatedBy;
+        archiveIssueBtn.Visibility = WpfVisibility.Collapsed;
+        restoreIssueBtn.Visibility = WpfVisibility.Collapsed;
+        saveIssueBtn.IsEnabled = true;
+
         PopulateForm(currentEditingIssue);
     }
 
     private void EditIssue(IssueItem item)
     {
         currentEditingIssue = item;
-        formHeader.Text = $"이슈 수정 {item.DisplayNumber}";
-        deleteIssueBtn.Visibility = WpfVisibility.Visible;
+        formHeaderTitle.Text = $"이슈 {item.DisplayNumber} · {item.Title}";
+        formHeaderSubtitle.Text = $"[{item.Status}] · [{item.Priority}] · [{item.DisciplinesDisplay}] | 작성자: {item.CreatedBy} ({item.CreatedAt:yyyy-MM-dd HH:mm})";
+
+        if (item.IsArchived)
+        {
+            archiveIssueBtn.Visibility = WpfVisibility.Collapsed;
+            restoreIssueBtn.Visibility = WpfVisibility.Visible;
+            saveIssueBtn.IsEnabled = false;
+        }
+        else
+        {
+            archiveIssueBtn.Visibility = WpfVisibility.Visible;
+            restoreIssueBtn.Visibility = WpfVisibility.Collapsed;
+            saveIssueBtn.IsEnabled = true;
+        }
+
         PopulateForm(item);
     }
 
@@ -616,10 +724,10 @@ public sealed class IssueTrackerWindow : Window
     {
         titleBox.Text = item.Title;
         statusCombo.SelectedItem = item.Status;
-        priorityCombo.SelectedItem = item.Priority;
+        priorityCombo.Text = item.Priority;
         discipline1Combo.Text = item.Discipline1;
         discipline2Combo.Text = item.Discipline2;
-        typeCombo.SelectedItem = item.Type;
+        typeCombo.Text = item.Type;
         assignedToCombo.Text = item.AssignedTo;
         createdByBox.Text = string.IsNullOrWhiteSpace(item.CreatedBy) ? ResolveCurrentAuthor() : item.CreatedBy;
 
@@ -629,15 +737,188 @@ public sealed class IssueTrackerWindow : Window
             dueDatePicker.SelectedDate = null;
 
         locationBox.Text = item.Location;
-        rootCauseCombo.SelectedItem = item.RootCause;
+        rootCauseCombo.Text = item.RootCause;
         descBox.Text = item.Description;
 
-        currentSnapshotFileName = item.SnapshotFileName;
-        UpdateSnapshotPreview();
+        UpdateSnapshotGalleryUI();
         UpdateLinkedElementsUI();
         UpdateLinkedViewUI();
+        UpdateCommentsUI();
 
         RebuildCustomFieldsUI(item.CustomFields);
+    }
+
+    private void UpdateSnapshotGalleryUI()
+    {
+        snapshotGalleryPanel.Children.Clear();
+        if (currentEditingIssue == null || currentEditingIssue.SnapshotFileNames.Count == 0)
+        {
+            snapshotCountText.Text = "(스냅샷 없음)";
+            return;
+        }
+
+        snapshotCountText.Text = $"총 {currentEditingIssue.SnapshotFileNames.Count}장 (클릭 시 확대 보기)";
+
+        foreach (var snapName in currentEditingIssue.SnapshotFileNames.ToList())
+        {
+            string fullPath = storage.GetSnapshotFullPath(snapName, currentEditingIssue.IsArchived);
+
+            var container = new Border
+            {
+                Width = 110,
+                Height = 85,
+                Margin = new Thickness(4),
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Background = Brushes.Black,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "클릭하여 크게 보기"
+            };
+
+            var grid = new WpfGrid();
+            var img = new System.Windows.Controls.Image { Stretch = Stretch.Uniform };
+
+            if (File.Exists(fullPath))
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.DecodePixelWidth = 160;
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.UriSource = new Uri(fullPath);
+                    bmp.EndInit();
+                    img.Source = bmp;
+                }
+                catch
+                {
+                    // Ignore
+                }
+            }
+
+            grid.Children.Add(img);
+
+            // Delete 'X' button
+            var delBtn = new Button
+            {
+                Content = "✕",
+                Width = 18,
+                Height = 18,
+                Padding = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(2),
+                Background = new SolidColorBrush(MediaColor.FromArgb(180, 200, 40, 40)),
+                Foreground = Brushes.White,
+                FontSize = 10,
+                ToolTip = "스냅샷 삭제"
+            };
+            delBtn.Click += (s, e) =>
+            {
+                e.Handled = true;
+                currentEditingIssue.SnapshotFileNames.Remove(snapName);
+                UpdateSnapshotGalleryUI();
+            };
+            grid.Children.Add(delBtn);
+
+            container.Child = grid;
+
+            // Click to open high-res viewer
+            container.MouseLeftButtonUp += (s, e) =>
+            {
+                if (File.Exists(fullPath))
+                {
+                    var viewer = new ImageViewerDialog(fullPath, currentEditingIssue.DisplayNumber) { Owner = this };
+                    viewer.ShowDialog();
+                }
+            };
+
+            snapshotGalleryPanel.Children.Add(container);
+        }
+    }
+
+    private void UpdateCommentsUI()
+    {
+        commentsListPanel.Children.Clear();
+        if (currentEditingIssue == null || currentEditingIssue.Comments.Count == 0)
+        {
+            commentsListPanel.Children.Add(new TextBlock
+            {
+                Text = "(등록된 댓글이나 수정 내역이 없습니다.)",
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(4)
+            });
+            return;
+        }
+
+        foreach (var c in currentEditingIssue.Comments.OrderBy(x => x.CreatedAt))
+        {
+            var itemBorder = new Border
+            {
+                Margin = new Thickness(0, 3, 0, 3),
+                Padding = new Thickness(6),
+                CornerRadius = new CornerRadius(4),
+                Background = c.IsSystem ? new SolidColorBrush(MediaColor.FromRgb(245, 247, 250)) : new SolidColorBrush(MediaColor.FromRgb(255, 255, 255)),
+                BorderBrush = c.IsSystem ? Brushes.LightSteelBlue : Brushes.LightGray,
+                BorderThickness = new Thickness(1)
+            };
+
+            var stack = new StackPanel();
+            var metaBar = new DockPanel();
+
+            var authorText = new TextBlock
+            {
+                Text = c.IsSystem ? $"[시스템 알림] {c.Author}" : c.Author,
+                FontWeight = FontWeights.Bold,
+                Foreground = c.IsSystem ? Brushes.SteelBlue : Brushes.DarkSlateBlue
+            };
+            var timeText = new TextBlock
+            {
+                Text = c.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                Foreground = Brushes.Gray,
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+
+            DockPanel.SetDock(timeText, Dock.Right);
+            metaBar.Children.Add(timeText);
+            metaBar.Children.Add(authorText);
+            stack.Children.Add(metaBar);
+
+            var contentText = new TextBlock
+            {
+                Text = c.Content,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+                Foreground = c.IsSystem ? Brushes.DimGray : Brushes.Black
+            };
+            stack.Children.Add(contentText);
+
+            itemBorder.Child = stack;
+            commentsListPanel.Children.Add(itemBorder);
+        }
+    }
+
+    private void AddUserComment(object sender, RoutedEventArgs e)
+    {
+        string text = newCommentBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        if (currentEditingIssue == null) return;
+
+        string author = ResolveCurrentAuthor();
+        currentEditingIssue.Comments.Add(new IssueComment
+        {
+            Author = author,
+            Content = text,
+            CreatedAt = DateTime.Now,
+            IsSystem = false
+        });
+
+        newCommentBox.Clear();
+        storage.SaveIssue(currentEditingIssue, config);
+        UpdateCommentsUI();
+        SetStatus("댓글이 등록되었습니다.");
     }
 
     private void UpdateLinkedViewUI()
@@ -666,42 +947,6 @@ public sealed class IssueTrackerWindow : Window
             linkedElementsText.Text = $"{currentEditingIssue.ElementIds.Count}개 객체 선택됨 (ID: {string.Join(", ", currentEditingIssue.ElementIds)})";
             highlightElementsBtn.IsEnabled = true;
         }
-    }
-
-    private void UpdateSnapshotPreview()
-    {
-        if (string.IsNullOrWhiteSpace(currentSnapshotFileName))
-        {
-            snapshotPreview.Source = null;
-            snapshotPreview.Visibility = WpfVisibility.Collapsed;
-            clearSnapshotBtn.IsEnabled = false;
-            return;
-        }
-
-        string fullPath = storage.GetSnapshotFullPath(currentSnapshotFileName);
-        if (File.Exists(fullPath))
-        {
-            try
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(fullPath);
-                bmp.EndInit();
-                snapshotPreview.Source = bmp;
-                snapshotPreview.Visibility = WpfVisibility.Visible;
-                clearSnapshotBtn.IsEnabled = true;
-                return;
-            }
-            catch
-            {
-                // Fallthrough
-            }
-        }
-
-        snapshotPreview.Source = null;
-        snapshotPreview.Visibility = WpfVisibility.Collapsed;
-        clearSnapshotBtn.IsEnabled = false;
     }
 
     private void RebuildCustomFieldsUI(Dictionary<string, string> values)
@@ -874,15 +1119,45 @@ public sealed class IssueTrackerWindow : Window
 
     private void CaptureActiveViewFromRevit(object sender, RoutedEventArgs e)
     {
+        int snapIndex = (currentEditingIssue?.SnapshotFileNames.Count ?? 0) + 1;
         string baseName = (currentEditingIssue != null && !string.IsNullOrWhiteSpace(currentEditingIssue.Id))
-            ? $"{currentEditingIssue.Id}_snapshot"
-            : $"snap_{DateTime.Now:yyyyMMdd_HHmmss}";
+            ? $"{currentEditingIssue.Id}_snap_{snapIndex}_{DateTime.Now:HHmmss}"
+            : $"snap_{DateTime.Now:yyyyMMdd_HHmmss}_{snapIndex}";
 
         eventHandler.CurrentAction = IssueRevitAction.CaptureView;
         eventHandler.CaptureTargetFolder = storage.IssueDirectory;
         eventHandler.CaptureTargetBaseName = baseName;
         revitEvent.Raise();
         SetStatus("현재 활성 뷰를 캡처 중입니다...");
+    }
+
+    private void AddLocalImageSnapshot(object sender, RoutedEventArgs e)
+    {
+        var ofd = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "이미지 파일 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp",
+            Title = "스냅샷에 추가할 이미지 선택"
+        };
+        if (ofd.ShowDialog() == true)
+        {
+            try
+            {
+                string ext = Path.GetExtension(ofd.FileName);
+                int snapIndex = (currentEditingIssue?.SnapshotFileNames.Count ?? 0) + 1;
+                string destName = $"local_{DateTime.Now:yyyyMMdd_HHmmss}_{snapIndex}{ext}";
+                string destPath = Path.Combine(storage.IssueDirectory, destName);
+                File.Copy(ofd.FileName, destPath, true);
+
+                if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
+                currentEditingIssue.SnapshotFileNames.Add(destName);
+                UpdateSnapshotGalleryUI();
+                SetStatus($"외부 이미지가 추가되었습니다: {destName}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"이미지 추가 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 
     private void SaveCurrentIssue()
@@ -895,21 +1170,93 @@ public sealed class IssueTrackerWindow : Window
             return;
         }
 
+        string currentAuthor = ResolveCurrentAuthor();
+        bool isNew = currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id);
         if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
+
+        // Check if assigned user exists in config, prompt if new
+        string assignedText = assignedToCombo.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(assignedText))
+        {
+            var matchedUser = config.Users.FirstOrDefault(u => u.DisplayText.Equals(assignedText, StringComparison.OrdinalIgnoreCase) || u.DisplayName.Equals(assignedText, StringComparison.OrdinalIgnoreCase));
+            if (matchedUser == null)
+            {
+                var ask = MessageBox.Show(this, $"담당자 '{assignedText}'는 등록된 참여자 목록에 없습니다.\n신규 참여자로 추가하시겠습니까?", "참여자 등록 안내", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (ask == MessageBoxResult.Yes)
+                {
+                    config.Users.Add(new ProjectUser { DisplayName = assignedText });
+                    storage.SaveConfig(config);
+                    UpdateAssignedToUsersList();
+                }
+            }
+            else
+            {
+                assignedText = matchedUser.DisplayText; // 정규화된 이름 (회사)
+            }
+        }
+
+        // Automatic System Comments on Modification
+        if (!isNew)
+        {
+            var changes = new List<string>();
+            string newStatus = statusCombo.SelectedItem?.ToString() ?? "Open";
+            if (!currentEditingIssue.Status.Equals(newStatus, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"상태: '{currentEditingIssue.Status}' → '{newStatus}'");
+
+            string newPriority = priorityCombo.Text.Trim();
+            if (!currentEditingIssue.Priority.Equals(newPriority, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"우선순위: '{currentEditingIssue.Priority}' → '{newPriority}'");
+
+            if (!currentEditingIssue.AssignedTo.Equals(assignedText, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"담당자: '{currentEditingIssue.AssignedTo}' → '{assignedText}'");
+
+            if (!currentEditingIssue.Title.Equals(title, StringComparison.OrdinalIgnoreCase))
+                changes.Add($"제목 수정");
+
+            if (changes.Count > 0)
+            {
+                currentEditingIssue.Comments.Add(new IssueComment
+                {
+                    Author = currentAuthor,
+                    Content = $"[수정 내역] {string.Join(", ", changes)}",
+                    CreatedAt = DateTime.Now,
+                    IsSystem = true
+                });
+            }
+            else
+            {
+                currentEditingIssue.Comments.Add(new IssueComment
+                {
+                    Author = currentAuthor,
+                    Content = "이슈 상세 내용이 수정되었습니다.",
+                    CreatedAt = DateTime.Now,
+                    IsSystem = true
+                });
+            }
+        }
+        else
+        {
+            currentEditingIssue.Comments.Add(new IssueComment
+            {
+                Author = currentAuthor,
+                Content = "이슈가 신규 등록되었습니다.",
+                CreatedAt = DateTime.Now,
+                IsSystem = true
+            });
+        }
 
         currentEditingIssue.Title = title;
         currentEditingIssue.Status = statusCombo.SelectedItem?.ToString() ?? "Open";
-        currentEditingIssue.Priority = priorityCombo.SelectedItem?.ToString() ?? "보통";
+        currentEditingIssue.Priority = priorityCombo.Text.Trim();
         currentEditingIssue.Discipline1 = discipline1Combo.Text.Trim();
         currentEditingIssue.Discipline2 = discipline2Combo.Text.Trim();
-        currentEditingIssue.Type = typeCombo.SelectedItem?.ToString() ?? "설계검토";
-        currentEditingIssue.AssignedTo = assignedToCombo.Text.Trim();
+        currentEditingIssue.Type = typeCombo.Text.Trim();
+        currentEditingIssue.AssignedTo = assignedText;
         currentEditingIssue.CreatedBy = createdByBox.Text.Trim();
         currentEditingIssue.DueDate = dueDatePicker.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
         currentEditingIssue.Location = locationBox.Text.Trim();
-        currentEditingIssue.RootCause = rootCauseCombo.SelectedItem?.ToString() ?? "미지정";
+        currentEditingIssue.RootCause = rootCauseCombo.Text.Trim();
         currentEditingIssue.Description = descBox.Text;
-        currentEditingIssue.SnapshotFileName = currentSnapshotFileName ?? "";
         currentEditingIssue.CustomFields = CollectCustomFieldValues();
 
         storage.SaveIssue(currentEditingIssue, config);
@@ -919,18 +1266,28 @@ public sealed class IssueTrackerWindow : Window
         PrepareNewIssue();
     }
 
-    private void DeleteCurrentIssue()
+    private void ArchiveCurrentIssue()
     {
         if (currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id)) return;
 
-        var result = MessageBox.Show(this, $"이슈 {currentEditingIssue.DisplayNumber} ('{currentEditingIssue.Title}')를 삭제하시겠습니까?", "삭제 확인", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        var result = MessageBox.Show(this, $"이슈 {currentEditingIssue.DisplayNumber} ('{currentEditingIssue.Title}')를 보관함(아카이브)으로 이동하시겠습니까?\n(영구 삭제되지 않으며 언제든 복원할 수 있습니다.)", "보관함 이동 확인", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result == MessageBoxResult.Yes)
         {
-            storage.DeleteIssue(currentEditingIssue.Id);
-            SetStatus($"이슈 {currentEditingIssue.DisplayNumber} 삭제 완료.");
+            storage.ArchiveIssue(currentEditingIssue.Id);
+            SetStatus($"이슈 {currentEditingIssue.DisplayNumber}를 보관함으로 이동했습니다.");
             LoadIssues();
             PrepareNewIssue();
         }
+    }
+
+    private void RestoreCurrentIssue()
+    {
+        if (currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.Id)) return;
+
+        storage.RestoreIssue(currentEditingIssue.Id);
+        SetStatus($"이슈 {currentEditingIssue.DisplayNumber}가 정상 복원되었습니다.");
+        LoadIssues();
+        PrepareNewIssue();
     }
 
     private void OpenUserManagerDialog(object sender, RoutedEventArgs e)
@@ -954,7 +1311,7 @@ public sealed class IssueTrackerWindow : Window
             UserPreferences.SaveColumns(columnPrefs);
             BuildGridColumns();
             LoadIssues();
-            SetStatus("사용자 열 설정이 적용 및 저장되었습니다.");
+            SetStatus("상단 제목 및 열 설정이 적용되었습니다.");
         }
     }
 
@@ -973,8 +1330,8 @@ public sealed class IssueTrackerWindow : Window
     {
         priorityCombo.ItemsSource = config.PriorityList;
         priorityFilterCombo.ItemsSource = new[] { "전체" }.Concat(config.PriorityList).ToArray();
-        discipline1Combo.ItemsSource = config.Discipline1List;
-        discipline2Combo.ItemsSource = config.Discipline2List;
+        discipline1Combo.ItemsSource = config.DisciplineList;
+        discipline2Combo.ItemsSource = new[] { "(해당 없음)" }.Concat(config.DisciplineList).ToList();
         typeCombo.ItemsSource = config.TypeList;
         rootCauseCombo.ItemsSource = config.RootCauseList;
         RebuildCustomFieldsUI(currentEditingIssue?.CustomFields ?? []);

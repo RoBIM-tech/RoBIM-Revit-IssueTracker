@@ -23,7 +23,7 @@ public sealed class Command : IExternalCommand
             return Result.Cancelled;
         }
 
-        var status = ReleaseMetadata.Resolve(null, "issue-tracker", "0.1.0-test.3");
+        var status = ReleaseMetadata.Resolve(null, "issue-tracker", "0.1.0-test.4");
 
         try
         {

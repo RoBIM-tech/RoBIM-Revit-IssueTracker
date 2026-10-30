@@ -12,8 +12,7 @@ public sealed class ProjectSettingsDialog : Window
 {
     private readonly IssueProjectConfig config;
 
-    private readonly ObservableCollection<string> d1List;
-    private readonly ObservableCollection<string> d2List;
+    private readonly ObservableCollection<string> disciplineList;
     private readonly ObservableCollection<string> typeList;
     private readonly ObservableCollection<string> rootCauseList;
     private readonly ObservableCollection<string> priorityList;
@@ -25,8 +24,7 @@ public sealed class ProjectSettingsDialog : Window
     {
         this.config = config;
 
-        d1List = new ObservableCollection<string>(config.Discipline1List);
-        d2List = new ObservableCollection<string>(config.Discipline2List);
+        disciplineList = new ObservableCollection<string>(config.DisciplineList);
         typeList = new ObservableCollection<string>(config.TypeList);
         rootCauseList = new ObservableCollection<string>(config.RootCauseList);
         priorityList = new ObservableCollection<string>(config.PriorityList);
@@ -52,8 +50,7 @@ public sealed class ProjectSettingsDialog : Window
 
     public void ApplyToConfig(IssueProjectConfig target)
     {
-        target.Discipline1List = d1List.ToList();
-        target.Discipline2List = d2List.ToList();
+        target.DisciplineList = disciplineList.ToList();
         target.TypeList = typeList.ToList();
         target.RootCauseList = rootCauseList.ToList();
         target.PriorityList = priorityList.ToList();
@@ -89,19 +86,10 @@ public sealed class ProjectSettingsDialog : Window
         // Tab Control
         var tabCtrl = new TabControl();
 
-        // Tab 1: Disciplines
-        var tab1 = new TabItem { Header = " 공종 (1 & 2) " };
-        var grid1 = new Grid { Margin = new Thickness(8) };
-        grid1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
-        grid1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var d1Editor = CreateListEditor("공종 1 (대분류)", d1List);
-        Grid.SetColumn(d1Editor, 0);
-        grid1.Children.Add(d1Editor);
-        var d2Editor = CreateListEditor("공종 2 (소분류/세부)", d2List);
-        Grid.SetColumn(d2Editor, 2);
-        grid1.Children.Add(d2Editor);
-        tab1.Content = grid1;
+        // Tab 1: Disciplines (공종 1 & 공종 2 공통 목록)
+        var tab1 = new TabItem { Header = " 공종 목록 (공종 1·2 공통) " };
+        var dEditor = CreateListEditor("공종 목록 (간섭 검토 시 공종 1과 공종 2에서 선택할 공통 목록)", disciplineList);
+        tab1.Content = dEditor;
         tabCtrl.Items.Add(tab1);
 
         // Tab 2: Types & Root Causes
