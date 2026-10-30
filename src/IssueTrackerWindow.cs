@@ -107,6 +107,20 @@ public sealed class IssueTrackerWindow : Window
         MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
+        try
+        {
+            string asmDir = Path.GetDirectoryName(typeof(IssueTrackerWindow).Assembly.Location) ?? "";
+            string iconPath = Path.Combine(asmDir, "Icons", "issue.png");
+            if (File.Exists(iconPath))
+            {
+                Icon = new BitmapImage(new Uri(iconPath));
+            }
+        }
+        catch
+        {
+            // Ignore icon loading error
+        }
+
         config = storage.LoadConfig();
 
         SetupEventHandlerCallbacks();

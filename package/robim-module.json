@@ -11,7 +11,8 @@
       "tab": "RoBIM TEST",
       "panel": "독립 도구 TEST",
       "assembly": "Contents/2026/RoBIM.Feature.IssueTracker.dll",
-      "type": "RoBIM.Feature.Command"
+      "type": "RoBIM.Feature.Command",
+      "icon": "Contents/2026/Icons/issue.png"
     }
   ]
 }

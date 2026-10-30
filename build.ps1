@@ -22,6 +22,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Native feature build failed' }
 if (Get-ChildItem -LiteralPath $contents -File | Where-Object { $_.Name -match '^RevitAPI.*\.dll$' }) { throw 'Autodesk DLL redistribution forbidden' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'package/robim-module.json') -Destination $bundle
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'package/robim-release.json') -Destination $bundle
+if (Test-Path (Join-Path $PSScriptRoot 'src/Assets')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'src/Assets') -Destination (Join-Path $contents 'Icons') -Recurse
+}
 if ($metadata.version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw 'Invalid package version directory' }
 $artifactDirectory = Join-Path $PSScriptRoot ('artifacts/' + $metadata.version)
 New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
