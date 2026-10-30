@@ -84,7 +84,22 @@ public sealed class IssueStorage
             {
                 string json = File.ReadAllText(configPath);
                 var config = JsonSerializer.Deserialize<IssueProjectConfig>(json, JsonOptions);
-                if (config != null) return config;
+                if (config != null)
+                {
+                    if (config.Discipline1List == null || config.Discipline1List.Count == 0)
+                        config.Discipline1List = ["건축", "구조", "기계", "전기", "통신", "소방", "토목", "조경", "기타"];
+                    if (config.Discipline2List == null || config.Discipline2List.Count == 0)
+                        config.Discipline2List = ["일반", "골조", "마감", "배관", "덕트", "케이블트레이", "소화배관", "외부토공", "기타"];
+                    if (config.TypeList == null || config.TypeList.Count == 0)
+                        config.TypeList = ["설계검토", "품질", "간섭(Clash)", "안전", "시공성", "법규/인허가", "기타"];
+                    if (config.RootCauseList == null || config.RootCauseList.Count == 0)
+                        config.RootCauseList = ["미지정", "설계 누락", "모델링 오류", "공종 간섭", "기준 미달", "발주처 요청", "현장 여건", "기타"];
+                    if (config.PriorityList == null || config.PriorityList.Count == 0)
+                        config.PriorityList = ["긴급", "높음", "보통", "낮음"];
+                    if (config.Users == null)
+                        config.Users = [];
+                    return config;
+                }
             }
             catch
             {
@@ -97,8 +112,6 @@ public sealed class IssueStorage
             NextNumber = 1,
             CustomFields =
             [
-                new CustomFieldDefinition { Name = "공종", FieldType = "Dropdown", Options = ["건축", "구조", "기계", "전기", "소방", "토목"], DefaultValue = "건축" },
-                new CustomFieldDefinition { Name = "우선순위", FieldType = "Radio", Options = ["긴급", "높음", "보통", "낮음"], DefaultValue = "보통" },
                 new CustomFieldDefinition { Name = "도면 번호", FieldType = "Text", DefaultValue = "" }
             ]
         };

@@ -17,6 +17,7 @@ using WpfGrid = System.Windows.Controls.Grid;
 using WpfTextBox = System.Windows.Controls.TextBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfVisibility = System.Windows.Visibility;
+using WpfBinding = System.Windows.Data.Binding;
 
 namespace RoBIM.Feature;
 
@@ -30,19 +31,23 @@ public sealed class IssueTrackerWindow : Window
     private readonly IssueExternalEventHandler eventHandler;
 
     private IssueProjectConfig config;
+    private List<ColumnPreferenceItem> columnPrefs;
     private readonly ObservableCollection<IssueItem> issues = [];
     private IssueItem? currentEditingIssue;
 
     // UI Controls - Header
-    private readonly TextBlock folderPathText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 450 };
-    private readonly Button openFolderBtn = new() { Content = "폴더 열기", Margin = new Thickness(6, 0, 0, 0) };
-    private readonly Button newIssueBtn = new() { Content = "+ 새 이슈 등록", MinWidth = 110, Margin = new Thickness(6, 0, 0, 0) };
-    private readonly Button configFieldsBtn = new() { Content = "커스텀 필드 설정", Margin = new Thickness(6, 0, 0, 0) };
-    private readonly Button refreshBtn = new() { Content = "새로고침", Margin = new Thickness(6, 0, 0, 0) };
+    private readonly TextBlock folderPathText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 320 };
+    private readonly Button openFolderBtn = new() { Content = "폴더 열기", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button newIssueBtn = new() { Content = "+ 새 이슈 등록", MinWidth = 100, Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button manageUsersBtn = new() { Content = "참여자 관리", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button configColumnsBtn = new() { Content = "열 설정", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button configFieldsBtn = new() { Content = "분류/필드 설정", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button refreshBtn = new() { Content = "새로고침", Margin = new Thickness(4, 0, 0, 0) };
 
     // UI Controls - Filter & List
-    private readonly WpfTextBox searchBox = new() { MinWidth = 160 };
-    private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 110 };
+    private readonly WpfTextBox searchBox = new() { MinWidth = 140 };
+    private readonly WpfComboBox statusFilterCombo = new() { MinWidth = 90 };
+    private readonly WpfComboBox priorityFilterCombo = new() { MinWidth = 80 };
     private readonly DataGrid issueGrid = new()
     {
         AutoGenerateColumns = false,
@@ -57,22 +62,33 @@ public sealed class IssueTrackerWindow : Window
     private readonly TextBlock formHeader = new() { FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) };
     private readonly WpfTextBox titleBox = new();
     private readonly WpfComboBox statusCombo = new();
-    private readonly WpfComboBox typeCombo = new();
-    private readonly WpfTextBox assignedToBox = new();
+    private readonly WpfComboBox priorityCombo = new();
+    private readonly WpfComboBox discipline1Combo = new() { IsEditable = true };
+    private readonly WpfComboBox discipline2Combo = new() { IsEditable = true };
+    private readonly WpfComboBox typeCombo = new() { IsEditable = true };
+    private readonly WpfComboBox assignedToCombo = new() { IsEditable = true };
+    private readonly WpfTextBox createdByBox = new() { IsReadOnly = true, Background = Brushes.WhiteSmoke };
     private readonly DatePicker dueDatePicker = new();
     private readonly WpfTextBox locationBox = new();
-    private readonly WpfComboBox rootCauseCombo = new();
-    private readonly WpfTextBox descBox = new() { AcceptsReturn = true, MinHeight = 70, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly WpfComboBox rootCauseCombo = new() { IsEditable = true };
+    private readonly WpfTextBox descBox = new() { AcceptsReturn = true, MinHeight = 65, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+    // Linked View Controls
+    private readonly TextBlock linkedViewText = new() { Text = "(연계된 뷰 없음)", VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
+    private readonly Button linkActiveViewBtn = new() { Content = "현재 뷰 연계", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button openViewBtn = new() { Content = "뷰 열기/이동", Margin = new Thickness(4, 0, 0, 0), IsEnabled = false };
+    private readonly Button clearViewBtn = new() { Content = "해제", Margin = new Thickness(4, 0, 0, 0) };
 
     // Element Link Controls
     private readonly TextBlock linkedElementsText = new() { Text = "(선택된 객체 없음)", VerticalAlignment = VerticalAlignment.Center };
-    private readonly Button pickElementsBtn = new() { Content = "뷰에서 선택", Margin = new Thickness(4, 0, 0, 0) };
-    private readonly Button getSelectedElementsBtn = new() { Content = "현재 선택 객체", Margin = new Thickness(4, 0, 0, 0) };
+    private readonly Button pickRectElementsBtn = new() { Content = "영역 드래그 선택(박스)", Margin = new Thickness(4, 0, 0, 0), ToolTip = "마우스로 드래그하여 영역 내 객체들을 한 번에 선택합니다." };
+    private readonly Button getSelectedElementsBtn = new() { Content = "현재 선택 객체", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Revit 화면에서 이미 선택되어 있는 객체들을 가져옵니다." };
+    private readonly Button pickElementsBtn = new() { Content = "다중 클릭 선택", Margin = new Thickness(4, 0, 0, 0), ToolTip = "Ctrl 키를 누른 채 객체들을 하나씩 클릭하여 선택합니다." };
     private readonly Button highlightElementsBtn = new() { Content = "객체로 이동/줌", Margin = new Thickness(4, 0, 0, 0), IsEnabled = false };
     private readonly Button clearElementsBtn = new() { Content = "해제", Margin = new Thickness(4, 0, 0, 0) };
 
     // Snapshot Controls
-    private readonly System.Windows.Controls.Image snapshotPreview = new() { MaxHeight = 160, Stretch = Stretch.Uniform, Margin = new Thickness(0, 4, 0, 4) };
+    private readonly System.Windows.Controls.Image snapshotPreview = new() { MaxHeight = 150, Stretch = Stretch.Uniform, Margin = new Thickness(0, 4, 0, 4) };
     private readonly Button captureViewBtn = new() { Content = "현재 화면 캡처", Margin = new Thickness(0, 0, 6, 0) };
     private readonly Button clearSnapshotBtn = new() { Content = "캡처 삭제" };
     private string? currentSnapshotFileName;
@@ -101,10 +117,10 @@ public sealed class IssueTrackerWindow : Window
 
         RoBimTheme.Apply(this);
         Title = $"BIM 이슈 검토 (ACC 스타일) · {version} · {doc.Title}";
-        Width = 1080;
-        Height = 720;
-        MinWidth = 880;
-        MinHeight = 560;
+        Width = 1120;
+        Height = 750;
+        MinWidth = 920;
+        MinHeight = 600;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         try
@@ -118,13 +134,15 @@ public sealed class IssueTrackerWindow : Window
         }
         catch
         {
-            // Ignore icon loading error
+            // Ignore icon load failure
         }
 
         config = storage.LoadConfig();
+        columnPrefs = UserPreferences.LoadColumns();
 
         SetupEventHandlerCallbacks();
         InitializeUI();
+        BuildGridColumns();
         LoadIssues();
         PrepareNewIssue();
     }
@@ -140,6 +158,19 @@ public sealed class IssueTrackerWindow : Window
                 currentEditingIssue.UniqueIds = uniqueIds;
                 UpdateLinkedElementsUI();
                 SetStatus($"객체 {elemIds.Count}개가 연결되었습니다.");
+            });
+        };
+
+        eventHandler.OnViewInfoRetrieved = (viewId, uniqueId, viewName) =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (currentEditingIssue == null) currentEditingIssue = new IssueItem();
+                currentEditingIssue.LinkedViewId = viewId;
+                currentEditingIssue.LinkedViewUniqueId = uniqueId;
+                currentEditingIssue.LinkedViewName = viewName;
+                UpdateLinkedViewUI();
+                SetStatus($"뷰 '{viewName}'가 연결되었습니다.");
             });
         };
 
@@ -186,12 +217,17 @@ public sealed class IssueTrackerWindow : Window
 
         var topButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         DockPanel.SetDock(topButtons, Dock.Right);
+
         newIssueBtn.Click += (s, e) => PrepareNewIssue();
+        manageUsersBtn.Click += OpenUserManagerDialog;
+        configColumnsBtn.Click += OpenColumnConfigDialog;
         configFieldsBtn.Click += OpenConfigDialog;
         refreshBtn.Click += (s, e) => { LoadIssues(); SetStatus("이슈 목록을 새로고침했습니다."); };
         openFolderBtn.Click += (s, e) => OpenIssueFolder();
 
         topButtons.Children.Add(openFolderBtn);
+        topButtons.Children.Add(manageUsersBtn);
+        topButtons.Children.Add(configColumnsBtn);
         topButtons.Children.Add(configFieldsBtn);
         topButtons.Children.Add(refreshBtn);
         topButtons.Children.Add(newIssueBtn);
@@ -206,11 +242,11 @@ public sealed class IssueTrackerWindow : Window
 
         root.Children.Add(topBar);
 
-        // 3. Main Split View: Left List (45%), Right Form (55%)
+        // 3. Main Split View: Left List (46%), Right Form (54%)
         var mainGrid = new WpfGrid();
-        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(45, GridUnitType.Star) });
+        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46, GridUnitType.Star) });
         mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) }); // Splitter
-        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(55, GridUnitType.Star) });
+        mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54, GridUnitType.Star) });
 
         var leftPanel = BuildLeftListPanel();
         WpfGrid.SetColumn(leftPanel, 0);
@@ -239,21 +275,19 @@ public sealed class IssueTrackerWindow : Window
         searchBox.TextChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(searchBox);
 
-        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
+        filterBar.Children.Add(new TextBlock { Text = " 상태: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
         statusFilterCombo.ItemsSource = new[] { "전체", "Open", "In Review", "Pending", "Closed", "Void" };
         statusFilterCombo.SelectedIndex = 0;
         statusFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
         filterBar.Children.Add(statusFilterCombo);
 
-        panel.Children.Add(filterBar);
+        filterBar.Children.Add(new TextBlock { Text = " 우선순위: ", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        priorityFilterCombo.ItemsSource = new[] { "전체", "긴급", "높음", "보통", "낮음" };
+        priorityFilterCombo.SelectedIndex = 0;
+        priorityFilterCombo.SelectionChanged += (s, e) => ApplyFilter();
+        filterBar.Children.Add(priorityFilterCombo);
 
-        // Grid
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "번호", Binding = new System.Windows.Data.Binding("DisplayNumber"), Width = 55 });
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "상태", Binding = new System.Windows.Data.Binding("Status"), Width = 75 });
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "유형", Binding = new System.Windows.Data.Binding("Type"), Width = 80 });
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "제목", Binding = new System.Windows.Data.Binding("Title"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "담당자", Binding = new System.Windows.Data.Binding("AssignedTo"), Width = 80 });
-        issueGrid.Columns.Add(new DataGridTextColumn { Header = "마감일", Binding = new System.Windows.Data.Binding("DueDate"), Width = 85 });
+        panel.Children.Add(filterBar);
 
         issueGrid.SelectionChanged += (s, e) =>
         {
@@ -265,6 +299,33 @@ public sealed class IssueTrackerWindow : Window
 
         panel.Children.Add(issueGrid);
         return panel;
+    }
+
+    private void BuildGridColumns()
+    {
+        issueGrid.Columns.Clear();
+
+        foreach (var col in columnPrefs.Where(c => c.IsVisible))
+        {
+            DataGridColumn dgc = col.ColumnId switch
+            {
+                "Number" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DisplayNumber"), Width = col.Width },
+                "Status" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Status"), Width = col.Width },
+                "Priority" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Priority"), Width = col.Width },
+                "Discipline1" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Discipline1"), Width = col.Width },
+                "Discipline2" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Discipline2"), Width = col.Width },
+                "Title" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Title"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) },
+                "AssignedTo" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("AssignedTo"), Width = col.Width },
+                "CreatedBy" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedBy"), Width = col.Width },
+                "LinkedView" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("LinkedViewName"), Width = col.Width },
+                "Elements" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("ElementsSummary"), Width = col.Width },
+                "DueDate" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("DueDate"), Width = col.Width },
+                "Location" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("Location"), Width = col.Width },
+                "CreatedAt" => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding("CreatedAt") { StringFormat = "yyyy-MM-dd" }, Width = col.Width },
+                _ => new DataGridTextColumn { Header = col.HeaderText, Binding = new WpfBinding(col.ColumnId), Width = col.Width }
+            };
+            issueGrid.Columns.Add(dgc);
+        }
     }
 
     private System.Windows.UIElement BuildRightFormPanel()
@@ -308,7 +369,7 @@ public sealed class IssueTrackerWindow : Window
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(85) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 6; i++)
         {
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
@@ -316,20 +377,32 @@ public sealed class IssueTrackerWindow : Window
         // Row 0: Title (Span 3)
         AddGridRow(g, 0, "제목 *:", titleBox, 1, 3);
 
-        // Row 1: Status & Type
+        // Row 1: Status & Priority
         statusCombo.ItemsSource = new[] { "Open", "In Review", "Pending", "Closed", "Void" };
         AddGridRow(g, 1, "상태:", statusCombo, 1, 1);
-        typeCombo.ItemsSource = new[] { "설계검토", "품질", "간섭(Clash)", "안전", "시공성", "기타" };
-        AddGridRow(g, 1, "유형:", typeCombo, 3, 1);
+        priorityCombo.ItemsSource = config.PriorityList;
+        AddGridRow(g, 1, "우선순위:", priorityCombo, 3, 1);
 
-        // Row 2: AssignedTo & DueDate
-        AddGridRow(g, 2, "담당자:", assignedToBox, 1, 1);
-        AddGridRow(g, 2, "마감일:", dueDatePicker, 3, 1);
+        // Row 2: Discipline 1 & Discipline 2 (기본 격상)
+        discipline1Combo.ItemsSource = config.Discipline1List;
+        AddGridRow(g, 2, "공종 1:", discipline1Combo, 1, 1);
+        discipline2Combo.ItemsSource = config.Discipline2List;
+        AddGridRow(g, 2, "공종 2:", discipline2Combo, 3, 1);
 
-        // Row 3: Location & RootCause
-        AddGridRow(g, 3, "위치/층:", locationBox, 1, 1);
-        rootCauseCombo.ItemsSource = new[] { "미지정", "설계 누락", "모델링 오류", "공종 간섭", "기준 미달", "발주처 요청", "기타" };
-        AddGridRow(g, 3, "근본 원인:", rootCauseCombo, 3, 1);
+        // Row 3: AssignedTo & CreatedBy (Revit Username 연계)
+        UpdateAssignedToUsersList();
+        AddGridRow(g, 3, "담당자:", assignedToCombo, 1, 1);
+        AddGridRow(g, 3, "작성자:", createdByBox, 3, 1);
+
+        // Row 4: Type & DueDate
+        typeCombo.ItemsSource = config.TypeList;
+        AddGridRow(g, 4, "유형:", typeCombo, 1, 1);
+        AddGridRow(g, 4, "마감일:", dueDatePicker, 3, 1);
+
+        // Row 5: Location & RootCause
+        AddGridRow(g, 5, "위치/층:", locationBox, 1, 1);
+        rootCauseCombo.ItemsSource = config.RootCauseList;
+        AddGridRow(g, 5, "근본 원인:", rootCauseCombo, 3, 1);
 
         form.Children.Add(g);
 
@@ -337,13 +410,40 @@ public sealed class IssueTrackerWindow : Window
         form.Children.Add(new TextBlock { Text = "상세 설명:", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 4) });
         form.Children.Add(descBox);
 
+        // Linked View Section
+        var viewGroup = new GroupBox { Header = "연계 뷰 (Active View)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
+        var viewStack = new StackPanel();
+        var viewBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+
+        linkActiveViewBtn.Click += LinkActiveView;
+        openViewBtn.Click += OpenLinkedView;
+        clearViewBtn.Click += (s, e) =>
+        {
+            if (currentEditingIssue != null)
+            {
+                currentEditingIssue.LinkedViewId = 0;
+                currentEditingIssue.LinkedViewUniqueId = "";
+                currentEditingIssue.LinkedViewName = "";
+                UpdateLinkedViewUI();
+            }
+        };
+
+        viewBar.Children.Add(linkActiveViewBtn);
+        viewBar.Children.Add(openViewBtn);
+        viewBar.Children.Add(clearViewBtn);
+        viewStack.Children.Add(viewBar);
+        viewStack.Children.Add(linkedViewText);
+        viewGroup.Content = viewStack;
+        form.Children.Add(viewGroup);
+
         // Linked Elements Section
-        var elemGroup = new GroupBox { Header = "연계 객체 (ElementId)", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
+        var elemGroup = new GroupBox { Header = "연계 객체 (ElementId) - 단일/다중/영역 드래그 선택", Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6) };
         var elemStack = new StackPanel();
         var elemBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
 
-        pickElementsBtn.Click += PickElementsFromRevit;
+        pickRectElementsBtn.Click += PickRectElementsFromRevit;
         getSelectedElementsBtn.Click += GetSelectedFromRevit;
+        pickElementsBtn.Click += PickElementsFromRevit;
         highlightElementsBtn.Click += HighlightElementsInRevit;
         clearElementsBtn.Click += (s, e) =>
         {
@@ -355,8 +455,9 @@ public sealed class IssueTrackerWindow : Window
             }
         };
 
-        elemBar.Children.Add(pickElementsBtn);
+        elemBar.Children.Add(pickRectElementsBtn);
         elemBar.Children.Add(getSelectedElementsBtn);
+        elemBar.Children.Add(pickElementsBtn);
         elemBar.Children.Add(highlightElementsBtn);
         elemBar.Children.Add(clearElementsBtn);
         elemStack.Children.Add(elemBar);
@@ -411,6 +512,28 @@ public sealed class IssueTrackerWindow : Window
         grid.Children.Add(element);
     }
 
+    private void UpdateAssignedToUsersList()
+    {
+        var options = new List<string>();
+        foreach (var u in config.Users)
+        {
+            options.Add(u.DisplayText);
+        }
+        assignedToCombo.ItemsSource = options;
+    }
+
+    private string ResolveCurrentAuthor()
+    {
+        string revitUser = doc.Application.Username;
+        var matched = config.Users.FirstOrDefault(u => u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase));
+        if (matched != null)
+        {
+            return matched.DisplayText;
+        }
+
+        return !string.IsNullOrWhiteSpace(revitUser) ? revitUser : Environment.UserName;
+    }
+
     private void LoadIssues()
     {
         issues.Clear();
@@ -426,16 +549,22 @@ public sealed class IssueTrackerWindow : Window
     {
         string query = searchBox.Text.Trim().ToLowerInvariant();
         string statusFilter = statusFilterCombo.SelectedItem?.ToString() ?? "전체";
+        string priorityFilter = priorityFilterCombo.SelectedItem?.ToString() ?? "전체";
 
         var filtered = issues.Where(i =>
         {
             bool matchStatus = statusFilter == "전체" || i.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase);
+            bool matchPriority = priorityFilter == "전체" || i.Priority.Equals(priorityFilter, StringComparison.OrdinalIgnoreCase);
             bool matchQuery = string.IsNullOrWhiteSpace(query) ||
                               i.Title.ToLowerInvariant().Contains(query) ||
                               i.DisplayNumber.ToLowerInvariant().Contains(query) ||
                               i.AssignedTo.ToLowerInvariant().Contains(query) ||
+                              i.CreatedBy.ToLowerInvariant().Contains(query) ||
+                              i.Discipline1.ToLowerInvariant().Contains(query) ||
+                              i.Discipline2.ToLowerInvariant().Contains(query) ||
+                              i.LinkedViewName.ToLowerInvariant().Contains(query) ||
                               i.Location.ToLowerInvariant().Contains(query);
-            return matchStatus && matchQuery;
+            return matchStatus && matchPriority && matchQuery;
         }).ToList();
 
         issueGrid.ItemsSource = filtered;
@@ -446,10 +575,29 @@ public sealed class IssueTrackerWindow : Window
         currentEditingIssue = new IssueItem
         {
             Status = "Open",
+            Priority = "보통",
+            Discipline1 = config.Discipline1List.FirstOrDefault() ?? "건축",
+            Discipline2 = config.Discipline2List.FirstOrDefault() ?? "일반",
             Type = "설계검토",
             RootCause = "미지정",
-            CreatedBy = Environment.UserName
+            CreatedBy = ResolveCurrentAuthor()
         };
+
+        // Automatically link active view for new issues
+        try
+        {
+            var av = doc.ActiveView;
+            if (av != null && !av.IsTemplate)
+            {
+                currentEditingIssue.LinkedViewId = av.Id.Value;
+                currentEditingIssue.LinkedViewUniqueId = av.UniqueId;
+                currentEditingIssue.LinkedViewName = av.Name;
+            }
+        }
+        catch
+        {
+            // Ignore view capture on startup
+        }
 
         formHeader.Text = "새 이슈 작성";
         deleteIssueBtn.Visibility = WpfVisibility.Collapsed;
@@ -468,8 +616,12 @@ public sealed class IssueTrackerWindow : Window
     {
         titleBox.Text = item.Title;
         statusCombo.SelectedItem = item.Status;
+        priorityCombo.SelectedItem = item.Priority;
+        discipline1Combo.Text = item.Discipline1;
+        discipline2Combo.Text = item.Discipline2;
         typeCombo.SelectedItem = item.Type;
-        assignedToBox.Text = item.AssignedTo;
+        assignedToCombo.Text = item.AssignedTo;
+        createdByBox.Text = string.IsNullOrWhiteSpace(item.CreatedBy) ? ResolveCurrentAuthor() : item.CreatedBy;
 
         if (DateTime.TryParse(item.DueDate, out var dt))
             dueDatePicker.SelectedDate = dt;
@@ -483,8 +635,73 @@ public sealed class IssueTrackerWindow : Window
         currentSnapshotFileName = item.SnapshotFileName;
         UpdateSnapshotPreview();
         UpdateLinkedElementsUI();
+        UpdateLinkedViewUI();
 
         RebuildCustomFieldsUI(item.CustomFields);
+    }
+
+    private void UpdateLinkedViewUI()
+    {
+        if (currentEditingIssue == null || string.IsNullOrWhiteSpace(currentEditingIssue.LinkedViewName))
+        {
+            linkedViewText.Text = "(연계된 뷰 없음)";
+            openViewBtn.IsEnabled = false;
+        }
+        else
+        {
+            linkedViewText.Text = $"연계 뷰: {currentEditingIssue.LinkedViewName} (ID: {currentEditingIssue.LinkedViewId})";
+            openViewBtn.IsEnabled = true;
+        }
+    }
+
+    private void UpdateLinkedElementsUI()
+    {
+        if (currentEditingIssue == null || currentEditingIssue.ElementIds.Count == 0)
+        {
+            linkedElementsText.Text = "(선택된 객체 없음)";
+            highlightElementsBtn.IsEnabled = false;
+        }
+        else
+        {
+            linkedElementsText.Text = $"{currentEditingIssue.ElementIds.Count}개 객체 선택됨 (ID: {string.Join(", ", currentEditingIssue.ElementIds)})";
+            highlightElementsBtn.IsEnabled = true;
+        }
+    }
+
+    private void UpdateSnapshotPreview()
+    {
+        if (string.IsNullOrWhiteSpace(currentSnapshotFileName))
+        {
+            snapshotPreview.Source = null;
+            snapshotPreview.Visibility = WpfVisibility.Collapsed;
+            clearSnapshotBtn.IsEnabled = false;
+            return;
+        }
+
+        string fullPath = storage.GetSnapshotFullPath(currentSnapshotFileName);
+        if (File.Exists(fullPath))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(fullPath);
+                bmp.EndInit();
+                snapshotPreview.Source = bmp;
+                snapshotPreview.Visibility = WpfVisibility.Visible;
+                clearSnapshotBtn.IsEnabled = true;
+                return;
+            }
+            catch
+            {
+                // Fallthrough
+            }
+        }
+
+        snapshotPreview.Source = null;
+        snapshotPreview.Visibility = WpfVisibility.Collapsed;
+        clearSnapshotBtn.IsEnabled = false;
     }
 
     private void RebuildCustomFieldsUI(Dictionary<string, string> values)
@@ -496,7 +713,7 @@ public sealed class IssueTrackerWindow : Window
         {
             customFieldsPanel.Children.Add(new TextBlock
             {
-                Text = "(설정된 커스텀 필드가 없습니다. 상단 '커스텀 필드 설정'에서 추가하세요.)",
+                Text = "(설정된 추가 커스텀 필드가 없습니다.)",
                 Foreground = Brushes.Gray,
                 Margin = new Thickness(4)
             });
@@ -607,67 +824,42 @@ public sealed class IssueTrackerWindow : Window
         return dict;
     }
 
-    private void UpdateLinkedElementsUI()
+    // Event Triggers
+    private void LinkActiveView(object sender, RoutedEventArgs e)
     {
-        if (currentEditingIssue == null || currentEditingIssue.ElementIds.Count == 0)
-        {
-            linkedElementsText.Text = "(선택된 객체 없음)";
-            highlightElementsBtn.IsEnabled = false;
-        }
-        else
-        {
-            linkedElementsText.Text = $"{currentEditingIssue.ElementIds.Count}개 객체 선택됨 (ID: {string.Join(", ", currentEditingIssue.ElementIds)})";
-            highlightElementsBtn.IsEnabled = true;
-        }
-    }
-
-    private void UpdateSnapshotPreview()
-    {
-        if (string.IsNullOrWhiteSpace(currentSnapshotFileName))
-        {
-            snapshotPreview.Source = null;
-            snapshotPreview.Visibility = WpfVisibility.Collapsed;
-            clearSnapshotBtn.IsEnabled = false;
-            return;
-        }
-
-        string fullPath = storage.GetSnapshotFullPath(currentSnapshotFileName);
-        if (File.Exists(fullPath))
-        {
-            try
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(fullPath);
-                bmp.EndInit();
-                snapshotPreview.Source = bmp;
-                snapshotPreview.Visibility = WpfVisibility.Visible;
-                clearSnapshotBtn.IsEnabled = true;
-                return;
-            }
-            catch
-            {
-                // Fallthrough on image load failure
-            }
-        }
-
-        snapshotPreview.Source = null;
-        snapshotPreview.Visibility = WpfVisibility.Collapsed;
-        clearSnapshotBtn.IsEnabled = false;
-    }
-
-    private void PickElementsFromRevit(object sender, RoutedEventArgs e)
-    {
-        eventHandler.CurrentAction = IssueRevitAction.PickElements;
+        eventHandler.CurrentAction = IssueRevitAction.GetCurrentViewInfo;
         revitEvent.Raise();
-        SetStatus("Revit 뷰에서 요소를 선택하세요...");
+    }
+
+    private void OpenLinkedView(object sender, RoutedEventArgs e)
+    {
+        if (currentEditingIssue == null || currentEditingIssue.LinkedViewId <= 0) return;
+
+        eventHandler.CurrentAction = IssueRevitAction.SwitchToViewAndHighlight;
+        eventHandler.TargetViewId = currentEditingIssue.LinkedViewId;
+        eventHandler.TargetElementIds = currentEditingIssue.ElementIds;
+        revitEvent.Raise();
+        SetStatus($"연계 뷰 '{currentEditingIssue.LinkedViewName}'로 전환하고 객체를 하이라이트합니다.");
+    }
+
+    private void PickRectElementsFromRevit(object sender, RoutedEventArgs e)
+    {
+        eventHandler.CurrentAction = IssueRevitAction.PickElementsByRectangle;
+        revitEvent.Raise();
+        SetStatus("마우스로 영역을 드래그하여 객체들을 한 번에 선택하세요...");
     }
 
     private void GetSelectedFromRevit(object sender, RoutedEventArgs e)
     {
         eventHandler.CurrentAction = IssueRevitAction.GetSelectedElements;
         revitEvent.Raise();
+    }
+
+    private void PickElementsFromRevit(object sender, RoutedEventArgs e)
+    {
+        eventHandler.CurrentAction = IssueRevitAction.PickElements;
+        revitEvent.Raise();
+        SetStatus("Ctrl 키를 누르고 객체들을 선택하세요 (완료 시 Finish 클릭)...");
     }
 
     private void HighlightElementsInRevit(object sender, RoutedEventArgs e)
@@ -707,8 +899,12 @@ public sealed class IssueTrackerWindow : Window
 
         currentEditingIssue.Title = title;
         currentEditingIssue.Status = statusCombo.SelectedItem?.ToString() ?? "Open";
+        currentEditingIssue.Priority = priorityCombo.SelectedItem?.ToString() ?? "보통";
+        currentEditingIssue.Discipline1 = discipline1Combo.Text.Trim();
+        currentEditingIssue.Discipline2 = discipline2Combo.Text.Trim();
         currentEditingIssue.Type = typeCombo.SelectedItem?.ToString() ?? "설계검토";
-        currentEditingIssue.AssignedTo = assignedToBox.Text.Trim();
+        currentEditingIssue.AssignedTo = assignedToCombo.Text.Trim();
+        currentEditingIssue.CreatedBy = createdByBox.Text.Trim();
         currentEditingIssue.DueDate = dueDatePicker.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
         currentEditingIssue.Location = locationBox.Text.Trim();
         currentEditingIssue.RootCause = rootCauseCombo.SelectedItem?.ToString() ?? "미지정";
@@ -737,16 +933,51 @@ public sealed class IssueTrackerWindow : Window
         }
     }
 
-    private void OpenConfigDialog(object sender, RoutedEventArgs e)
+    private void OpenUserManagerDialog(object sender, RoutedEventArgs e)
     {
-        var dlg = new CustomFieldsDialog(config.CustomFields) { Owner = this };
+        var dlg = new UserManagerDialog(config.Users, doc.Application.Username) { Owner = this };
         if (dlg.ShowDialog() == true && dlg.IsSaved)
         {
-            config.CustomFields = dlg.GetResultFields();
+            config.Users = dlg.GetResultUsers();
             storage.SaveConfig(config);
-            RebuildCustomFieldsUI(currentEditingIssue?.CustomFields ?? []);
-            SetStatus("커스텀 필드 설정이 저장되었습니다.");
+            UpdateAssignedToUsersList();
+            SetStatus("프로젝트 참여자 목록이 저장되었습니다.");
         }
+    }
+
+    private void OpenColumnConfigDialog(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ColumnConfigDialog(columnPrefs) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.IsSaved)
+        {
+            columnPrefs = dlg.GetResult();
+            UserPreferences.SaveColumns(columnPrefs);
+            BuildGridColumns();
+            LoadIssues();
+            SetStatus("사용자 열 설정이 적용 및 저장되었습니다.");
+        }
+    }
+
+    private void OpenConfigDialog(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ProjectSettingsDialog(config) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.IsSaved)
+        {
+            storage.SaveConfig(config);
+            RefreshConfigDrivenUI();
+            SetStatus("프로젝트 분류 및 필드 설정이 저장되었습니다.");
+        }
+    }
+
+    private void RefreshConfigDrivenUI()
+    {
+        priorityCombo.ItemsSource = config.PriorityList;
+        priorityFilterCombo.ItemsSource = new[] { "전체" }.Concat(config.PriorityList).ToArray();
+        discipline1Combo.ItemsSource = config.Discipline1List;
+        discipline2Combo.ItemsSource = config.Discipline2List;
+        typeCombo.ItemsSource = config.TypeList;
+        rootCauseCombo.ItemsSource = config.RootCauseList;
+        RebuildCustomFieldsUI(currentEditingIssue?.CustomFields ?? []);
     }
 
     private void OpenIssueFolder()

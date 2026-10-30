@@ -12,21 +12,27 @@ public enum IssueRevitAction
 {
     None,
     PickElements,
+    PickElementsByRectangle,
     GetSelectedElements,
     HighlightElements,
-    CaptureView
+    SwitchToViewAndHighlight,
+    CaptureView,
+    GetCurrentViewInfo
 }
 
 public sealed class IssueExternalEventHandler : IExternalEventHandler
 {
     public IssueRevitAction CurrentAction { get; set; } = IssueRevitAction.None;
 
-    // Action Parameters & Callbacks
+    // Parameters
     public List<long> TargetElementIds { get; set; } = [];
+    public long TargetViewId { get; set; }
     public string CaptureTargetFolder { get; set; } = string.Empty;
     public string CaptureTargetBaseName { get; set; } = string.Empty;
 
+    // Callbacks
     public Action<List<long>, List<string>>? OnElementsPicked { get; set; }
+    public Action<long, string, string>? OnViewInfoRetrieved { get; set; } // id, uniqueId, name
     public Action<string>? OnViewCaptured { get; set; }
     public Action<string>? OnError { get; set; }
 
@@ -49,12 +55,24 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
                     ExecutePickElements(uidoc);
                     break;
 
+                case IssueRevitAction.PickElementsByRectangle:
+                    ExecutePickElementsByRectangle(uidoc);
+                    break;
+
                 case IssueRevitAction.GetSelectedElements:
                     ExecuteGetSelectedElements(uidoc);
                     break;
 
                 case IssueRevitAction.HighlightElements:
                     ExecuteHighlightElements(uidoc);
+                    break;
+
+                case IssueRevitAction.SwitchToViewAndHighlight:
+                    ExecuteSwitchToViewAndHighlight(uidoc);
+                    break;
+
+                case IssueRevitAction.GetCurrentViewInfo:
+                    ExecuteGetCurrentViewInfo(uidoc);
                     break;
 
                 case IssueRevitAction.CaptureView:
@@ -64,7 +82,7 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         }
         catch (Autodesk.Revit.Exceptions.OperationCanceledException)
         {
-            // User cancelled selection - do nothing
+            // User cancelled picking - do nothing
         }
         catch (Exception ex)
         {
@@ -79,7 +97,7 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
     private void ExecutePickElements(UIDocument uidoc)
     {
         var doc = uidoc.Document;
-        var refs = uidoc.Selection.PickObjects(ObjectType.Element, "이슈와 연계할 객체들을 선택하세요 (완료 시 Finish 클릭)");
+        var refs = uidoc.Selection.PickObjects(ObjectType.Element, "객체들을 선택하세요 (Ctrl을 누르고 다중 클릭 가능, 완료 시 상단 Finish/완료 클릭)");
         if (refs == null || refs.Count == 0) return;
 
         var elementIds = new List<long>();
@@ -88,7 +106,28 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         foreach (var r in refs)
         {
             var elem = doc.GetElement(r);
-            if (elem != null)
+            if (elem != null && !elementIds.Contains(elem.Id.Value))
+            {
+                elementIds.Add(elem.Id.Value);
+                uniqueIds.Add(elem.UniqueId);
+            }
+        }
+
+        OnElementsPicked?.Invoke(elementIds, uniqueIds);
+    }
+
+    private void ExecutePickElementsByRectangle(UIDocument uidoc)
+    {
+        var doc = uidoc.Document;
+        var elems = uidoc.Selection.PickElementsByRectangle("마우스로 사각형 영역을 드래그하여 객체들을 한 번에 선택하세요");
+        if (elems == null || elems.Count == 0) return;
+
+        var elementIds = new List<long>();
+        var uniqueIds = new List<string>();
+
+        foreach (var elem in elems)
+        {
+            if (elem != null && !elementIds.Contains(elem.Id.Value))
             {
                 elementIds.Add(elem.Id.Value);
                 uniqueIds.Add(elem.UniqueId);
@@ -114,7 +153,7 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         foreach (var id in selIds)
         {
             var elem = doc.GetElement(id);
-            if (elem != null)
+            if (elem != null && !elementIds.Contains(elem.Id.Value))
             {
                 elementIds.Add(elem.Id.Value);
                 uniqueIds.Add(elem.UniqueId);
@@ -149,6 +188,35 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
         }
     }
 
+    private void ExecuteSwitchToViewAndHighlight(UIDocument uidoc)
+    {
+        var doc = uidoc.Document;
+
+        if (TargetViewId > 0)
+        {
+            var viewElem = doc.GetElement(new ElementId(TargetViewId)) as View;
+            if (viewElem != null && !viewElem.IsTemplate)
+            {
+                if (uidoc.ActiveView.Id != viewElem.Id)
+                {
+                    uidoc.ActiveView = viewElem;
+                }
+            }
+        }
+
+        // Highlight elements after view transition
+        ExecuteHighlightElements(uidoc);
+    }
+
+    private void ExecuteGetCurrentViewInfo(UIDocument uidoc)
+    {
+        var view = uidoc.ActiveView;
+        if (view != null)
+        {
+            OnViewInfoRetrieved?.Invoke(view.Id.Value, view.UniqueId, view.Name);
+        }
+    }
+
     private void ExecuteCaptureView(Document doc)
     {
         if (string.IsNullOrWhiteSpace(CaptureTargetFolder))
@@ -175,7 +243,6 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
 
         doc.ExportImage(options);
 
-        // Revit ExportImage appends view name or extension
         string? exportedFile = Directory.GetFiles(CaptureTargetFolder, Path.GetFileName(tempBase) + "*")
             .FirstOrDefault(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
 
