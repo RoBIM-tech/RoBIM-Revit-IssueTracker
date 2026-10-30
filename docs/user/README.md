@@ -1,6 +1,6 @@
 # BIM 이슈 검토 (Issue Tracker) 사용자 설명서
 
-Revit 내부에서 도면/모델을 검토하면서 ACC(Autodesk Construction Cloud)와 유사한 양식으로 이슈를 기록하고 관리할 수 있는 독립 Add-in 도구입니다.
+Revit 내부에서 도면/모델을 검토하면서 ACC(Autodesk Construction Cloud)와 유사한 양식으로 이슈를 기록하고 관리할 수 있는 Add-in 도구입니다.
 
 ---
 
