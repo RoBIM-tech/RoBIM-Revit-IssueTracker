@@ -785,7 +785,7 @@ public sealed class IssueTrackerWindow : Window
                 {
                     var bmp = new BitmapImage();
                     bmp.BeginInit();
-                    bmp.DecodePixelWidth = 160;
+                    bmp.DecodePixelWidth = 240;
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
                     bmp.UriSource = new Uri(fullPath);
                     bmp.EndInit();

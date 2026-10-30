@@ -237,8 +237,9 @@ public sealed class IssueExternalEventHandler : IExternalEventHandler
             FilePath = tempBase,
             HLRandWFViewsFileType = ImageFileType.PNG,
             ShadowViewsFileType = ImageFileType.PNG,
-            ImageResolution = ImageResolution.DPI_150,
-            ZoomType = ZoomFitType.FitToPage
+            ImageResolution = ImageResolution.DPI_300,
+            ZoomType = ZoomFitType.FitToPage,
+            PixelSize = 2560 // 고화질 2.5K 원본 해상도 그대로 캡처 저장
         };
 
         doc.ExportImage(options);
