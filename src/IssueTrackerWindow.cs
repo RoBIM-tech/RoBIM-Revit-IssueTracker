@@ -76,7 +76,8 @@ public sealed class IssueTrackerWindow : Window
     private readonly WpfComboBox discipline2Combo = new() { IsEditable = true };
     private readonly WpfComboBox typeCombo = new() { IsEditable = true };
     private readonly WpfComboBox assignedToCombo = new() { IsEditable = true };
-    private readonly WpfComboBox createdByCombo = new() { IsEditable = true }; // 작성자 이름 (회사) 드롭다운 및 직접 수정 지원
+    private readonly WpfTextBox createdByBox = new() { IsReadOnly = true, Background = Brushes.WhiteSmoke }; // 최초 등록 작성자 (고정)
+    private readonly TextBlock currentUserTag = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), FontWeight = FontWeights.SemiBold };
     private readonly DatePicker dueDatePicker = new();
     private readonly WpfTextBox locationBox = new();
     private readonly WpfComboBox rootCauseCombo = new() { IsEditable = true };
@@ -305,6 +306,9 @@ public sealed class IssueTrackerWindow : Window
         var modelTag = new TextBlock { Text = currentModelName, FontWeight = FontWeights.SemiBold, Foreground = Brushes.RoyalBlue, ToolTip = currentModelName };
         folderInfo.Children.Add(modelTag);
 
+        folderInfo.Children.Add(currentUserTag);
+        UpdateCurrentUserUI();
+
         topBar.Children.Add(folderInfo);
 
         root.Children.Add(topBar);
@@ -490,8 +494,7 @@ public sealed class IssueTrackerWindow : Window
         // Row 3: AssignedTo & CreatedBy (이름 (회사) 포맷)
         UpdateUsersCombos();
         AddGridRow(g, 3, "담당자:", assignedToCombo, 1, 1);
-        AddGridRow(g, 3, "작성자:", createdByCombo, 3, 1);
-        createdByCombo.SelectionChanged += (s, e) => UpdateCommentsUI();
+        AddGridRow(g, 3, "작성자(원작자):", createdByBox, 3, 1);
 
         // Row 4: Type & DueDate
         typeCombo.ItemsSource = config.TypeList;
@@ -711,38 +714,60 @@ public sealed class IssueTrackerWindow : Window
             options.Add(u.DisplayText); // 이름 (회사)
         }
         assignedToCombo.ItemsSource = options;
-        createdByCombo.ItemsSource = options;
     }
 
-    private string ResolveCurrentAuthor()
+    private ProjectUser? GetCurrentOperator()
     {
         string revitUser = (doc.Application.Username ?? "").Trim();
         string winUser = Environment.UserName;
 
-        // 1. RevitUsername 일치 확인
         var matched = config.Users.FirstOrDefault(u =>
             !string.IsNullOrWhiteSpace(u.RevitUsername) &&
             (u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase) ||
              u.RevitUsername.Equals(winUser, StringComparison.OrdinalIgnoreCase)));
 
-        if (matched != null) return matched.DisplayText;
+        if (matched != null) return matched;
 
-        // 2. DisplayName 일치 확인
         matched = config.Users.FirstOrDefault(u =>
             u.DisplayName.Equals(revitUser, StringComparison.OrdinalIgnoreCase) ||
             u.DisplayName.Equals(winUser, StringComparison.OrdinalIgnoreCase));
 
-        if (matched != null) return matched.DisplayText;
+        return matched;
+    }
 
-        // 3. 등록된 참여자가 있다면 첫 번째 참여자 반환
-        if (config.Users.Count > 0)
-        {
-            return config.Users[0].DisplayText;
-        }
+    private string GetCurrentOperatorDisplayText()
+    {
+        var op = GetCurrentOperator();
+        if (op != null) return op.DisplayText;
 
-        // 4. 등록된 참여자가 전혀 없을 때
+        string revitUser = (doc.Application.Username ?? "").Trim();
+        string winUser = Environment.UserName;
+        if (config.Users.Count > 0) return config.Users[0].DisplayText;
+
         return !string.IsNullOrWhiteSpace(revitUser) ? $"{revitUser} (회사미지정)" : $"{winUser} (회사미지정)";
     }
+
+    private bool IsCurrentOperatorAdmin()
+    {
+        if (config.Users.Count == 0 || !config.Users.Any(u => u.IsAdmin))
+        {
+            return true; // 등록된 관리자가 없는 초기 상태는 작업 허용
+        }
+        var op = GetCurrentOperator();
+        return op?.IsAdmin == true;
+    }
+
+    private void UpdateCurrentUserUI()
+    {
+        bool isAdmin = IsCurrentOperatorAdmin();
+        currentUserTag.Text = $"  |  현재 작업자: {GetCurrentOperatorDisplayText()} {(isAdmin ? "[관리자]" : "")}";
+        currentUserTag.Foreground = isAdmin ? Brushes.Crimson : Brushes.DarkSlateGray;
+        currentUserTag.ToolTip = isAdmin
+            ? "현재 관리자 권한으로 작업 중입니다. (댓글/활동내역 삭제 권한 보유)"
+            : "일반 참여자 권한으로 작업 중입니다.";
+    }
+
+    private string ResolveCurrentAuthor() => GetCurrentOperatorDisplayText();
 
     private string NormalizeAuthor(string? rawAuthor)
     {
@@ -954,7 +979,7 @@ public sealed class IssueTrackerWindow : Window
         discipline2Combo.Text = item.Discipline2;
         typeCombo.Text = item.Type;
         assignedToCombo.Text = NormalizeAuthor(item.AssignedTo);
-        createdByCombo.Text = NormalizeAuthor(item.CreatedBy);
+        createdByBox.Text = NormalizeAuthor(item.CreatedBy);
         sourceModelBox.Text = item.SourceModelDisplay;
 
         if (DateTime.TryParse(item.DueDate, out var dt))
@@ -1112,7 +1137,7 @@ public sealed class IssueTrackerWindow : Window
             };
             rightPanel.Children.Add(timeText);
 
-            if (IsCurrentUserAdmin())
+            if (IsCurrentOperatorAdmin())
             {
                 var delCommentBtn = new Button
                 {
@@ -1167,7 +1192,7 @@ public sealed class IssueTrackerWindow : Window
         if (string.IsNullOrWhiteSpace(text)) return;
         if (currentEditingIssue == null) return;
 
-        string author = createdByCombo.Text.Trim();
+        string author = GetCurrentOperatorDisplayText();
         if (string.IsNullOrWhiteSpace(author)) author = ResolveCurrentAuthor();
 
         currentEditingIssue.Comments.Add(new IssueComment
@@ -1429,24 +1454,6 @@ public sealed class IssueTrackerWindow : Window
         SetStatus(zoom ? $"연계 객체 {currentEditingIssue.ElementIds.Count}개를 선택하고 줌 이동합니다." : $"연계 객체 {currentEditingIssue.ElementIds.Count}개를 Revit에서 선택했습니다. (줌 없음)");
     }
 
-    private bool IsCurrentUserAdmin()
-    {
-        if (config.Users.Count == 0 || !config.Users.Any(u => u.IsAdmin))
-        {
-            return true; // 관리자가 한 명도 지정되지 않은 초기 상태는 모든 사용자에게 삭제 권한 허용
-        }
-
-        string currentAuthor = createdByCombo.Text.Trim();
-        string revitUser = (doc.Application.Username ?? "").Trim();
-
-        var matched = config.Users.FirstOrDefault(u =>
-            u.DisplayText.Equals(currentAuthor, StringComparison.OrdinalIgnoreCase) ||
-            u.DisplayName.Equals(currentAuthor, StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrWhiteSpace(u.RevitUsername) && u.RevitUsername.Equals(revitUser, StringComparison.OrdinalIgnoreCase)));
-
-        return matched?.IsAdmin == true;
-    }
-
     private void CaptureActiveViewFromRevit(object sender, RoutedEventArgs e)
     {
         int snapIndex = (currentEditingIssue?.SnapshotFileNames.Count ?? 0) + 1;
@@ -1500,8 +1507,7 @@ public sealed class IssueTrackerWindow : Window
             return;
         }
 
-        string currentAuthor = createdByCombo.Text.Trim();
-        if (string.IsNullOrWhiteSpace(currentAuthor)) currentAuthor = ResolveCurrentAuthor();
+        string currentOperator = GetCurrentOperatorDisplayText();
 
         // Check if author or assigned user exists in config, prompt/register if new
         string assignedText = assignedToCombo.Text.Trim();
@@ -1639,7 +1645,7 @@ public sealed class IssueTrackerWindow : Window
             {
                 currentEditingIssue.Comments.Add(new IssueComment
                 {
-                    Author = currentAuthor,
+                    Author = currentOperator,
                     Content = $"[수정 내역]\n• {string.Join("\n• ", changes)}",
                     CreatedAt = DateTime.Now,
                     IsSystem = true
@@ -1650,7 +1656,7 @@ public sealed class IssueTrackerWindow : Window
         {
             currentEditingIssue.Comments.Add(new IssueComment
             {
-                Author = currentAuthor,
+                Author = currentOperator,
                 Content = $"이슈 신규 등록 (상태: {newStatus}, 우선순위: {newPriority}, 담당자: {(string.IsNullOrWhiteSpace(assignedText) ? "미지정" : assignedText)})",
                 CreatedAt = DateTime.Now,
                 IsSystem = true
@@ -1664,7 +1670,10 @@ public sealed class IssueTrackerWindow : Window
         currentEditingIssue.Discipline2 = newD2;
         currentEditingIssue.Type = newType;
         currentEditingIssue.AssignedTo = assignedText;
-        currentEditingIssue.CreatedBy = currentAuthor;
+        if (isNew || string.IsNullOrWhiteSpace(currentEditingIssue.CreatedBy))
+        {
+            currentEditingIssue.CreatedBy = currentOperator;
+        }
         currentEditingIssue.DueDate = newDue;
         currentEditingIssue.Location = newLoc;
         currentEditingIssue.RootCause = newRoot;
@@ -1727,6 +1736,8 @@ public sealed class IssueTrackerWindow : Window
             config.Users = dlg.GetResultUsers();
             storage.SaveConfig(config);
             UpdateUsersCombos();
+            UpdateCurrentUserUI();
+            UpdateCommentsUI();
             SetStatus("프로젝트 참여자 목록이 저장되었습니다.");
         }
     }
